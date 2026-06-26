@@ -2,30 +2,42 @@ import pandas as pd
 import logging
 from datetime import datetime
 
-# Import every single module to ensure full coverage
-from backend.analyzers import (trend_analyzer, momentum_analyzer, volume_analyzer, 
-                               volatility_analyzer, smart_money_analyzer, 
-                               institutional_analyzer, fundamental_analyzer)
-from backend.engines import (compounder_engine, swing_engine, long_term_engine)
-from backend.decision import (market_regime_engine, entry_engine, exit_engine, 
-                             stoploss_engine, target_engine, risk_engine, 
-                             reward_engine, holding_engine, allocation_engine, 
-                             position_size_engine, confidence_engine, 
-                             conviction_engine, recommendation_engine, 
-                             explanation_engine)
+# Layer 2: Analysis
+from backend.analyzers import (
+    trend_analyzer, momentum_analyzer, volume_analyzer, 
+    volatility_analyzer, smart_money_analyzer, 
+    institutional_analyzer, fundamental_analyzer
+)
+
+# Layer 3: Scoring
+from backend.engines import (
+    compounder_engine, swing_engine, long_term_engine,
+    trend_engine, momentum_engine, volume_engine, 
+    volatility_engine, smart_money_engine, institutional_engine, fundamental_engine
+)
+
+# Layer 4: Decision
+from backend.decision import (
+    market_regime_engine, entry_engine, exit_engine, 
+    stoploss_engine, target_engine, risk_engine, 
+    reward_engine, holding_engine, allocation_engine, 
+    position_size_engine, confidence_engine, 
+    conviction_engine, recommendation_engine, explanation_engine
+)
 
 def generate_final_master_report(df: pd.DataFrame, account_balance: float) -> dict:
     """
-    Enterprise-Grade Master AI: Orchestrator.
-    Maps every single requirement to a specific engine execution.
+    Enterprise Master AI: The Uncompressed Version.
+    This Engine ensures that every single variable from the Analysis Layer 
+    to the Execution Layer is calculated and reported explicitly.
     """
-    # 1. INITIALIZATION & GATEKEEPING
     try:
+        # 1. MARKET REGIME CHECK (Gatekeeping)
         regime = market_regime_engine.decide_market_permission(df)
         if regime['trade_permission'] != "ALLOWED":
-            return {"STATUS": "BLOCKED", "REASON": regime['reasoning']}
+            return {"STATUS": "BLOCKED", "REASON": regime['reasoning'], "SYSTEM": "IDLE"}
 
-        # 2. DATA COLLECTION: ANALYSIS LAYER (The "What")
+        # 2. ANALYSIS LAYER (Layer 2)
         analysis_data = {
             "Trend": trend_analyzer.analyze_trend(df),
             "Momentum": momentum_analyzer.analyze_momentum(df),
@@ -36,18 +48,26 @@ def generate_final_master_report(df: pd.DataFrame, account_balance: float) -> di
             "Fundamental": fundamental_analyzer.analyze_fundamentals(df)
         }
         
-        # 3. SCORING LAYER (The "Quality")
+        # 3. SCORING LAYER (Layer 3)
         scoring_data = {
             "Compounder": compounder_engine.calculate_compounder_score(df),
             "Swing": swing_engine.calculate_swing_score(df),
-            "LongTerm": long_term_engine.calculate_long_term_score(df)
+            "LongTerm": long_term_engine.calculate_long_term_score(df),
+            "TrendScore": trend_engine.calculate_trend_score(df),
+            "MomentumScore": momentum_engine.calculate_momentum_score(df),
+            "VolumeScore": volume_engine.calculate_volume_score(df),
+            "VolatilityScore": volatility_engine.calculate_volatility_score(df)
         }
-        # Composite Master Score
-        master_score = (scoring_data['Compounder']['compounder_score'] + 
-                        scoring_data['Swing']['swing_score'] + 
-                        scoring_data['LongTerm']['long_term_score']) / 3
+        # Final Master Score (Weighted Logic)
+        master_score = (scoring_data['Compounder']['score'] * 0.3 + 
+                        scoring_data['Swing']['score'] * 0.25 + 
+                        scoring_data['LongTerm']['score'] * 0.15 +
+                        scoring_data['TrendScore']['score'] * 0.1 +
+                        scoring_data['MomentumScore']['score'] * 0.1 +
+                        scoring_data['VolumeScore']['score'] * 0.05 +
+                        scoring_data['VolatilityScore']['score'] * 0.05)
         
-        # 4. DECISION LAYER (The "Action Plan")
+        # 4. DECISION & EXECUTION LAYER (Layer 4)
         entry = entry_engine.get_entry_strategy(df)
         if entry['action'] != "EXECUTE_ENTRY":
             return {"STATUS": "WAIT", "REASON": entry.get('reason', 'NO_ENTRY_SIGNAL')}
@@ -55,47 +75,49 @@ def generate_final_master_report(df: pd.DataFrame, account_balance: float) -> di
         sl = stoploss_engine.calculate_stoploss_levels(df, entry['entry_price'])
         targets = target_engine.calculate_targets(entry['entry_price'], sl['initial_sl'])
         
-        # 5. RISK & MANAGEMENT LAYER (The "Safety")
+        # 5. RISK & MANAGEMENT LAYER
         risk = risk_engine.calculate_risk_metrics(df, entry['entry_price'], sl['initial_sl'], account_balance)
         reward = reward_engine.calculate_reward_metrics(entry['entry_price'], sl['initial_sl'], 10)
-        pos_size = position_size_engine.calculate_position_size(account_balance, 0.02, entry['entry_price'], sl['initial_sl'])
-        allocation = allocation_engine.calculate_allocation(account_balance, [], "GENERAL", master_score)
+        conf = confidence_engine.calculate_confidence_score(scoring_data)
+        conv = conviction_engine.calculate_conviction_score(entry, risk, reward)
+        pos = position_size_engine.calculate_position_size(account_balance, 0.02, entry['entry_price'], sl['initial_sl'])
+        alloc = allocation_engine.calculate_allocation(account_balance, [], "GENERAL", master_score)
         holding = holding_engine.calculate_holding_strategy(df)
         
-        # 6. CONVICTION & FINAL AI VERDICT (The "Brain")
-        conf = confidence_engine.calculate_confidence_score({'trend': analysis_data['Trend']['trend_score'], 'momentum': analysis_data['Momentum']['momentum_score']})
-        conv = conviction_engine.calculate_conviction_score(entry, risk, reward)
+        # 6. VERDICT LAYER
         rec = recommendation_engine.get_recommendation(master_score, conf['confidence_score'])
-        expl = explanation_engine.generate_explanation({'DECISION': rec['recommendation'], 'CONVICTION': conv['rating'], 'RISK_MANAGEMENT': risk}, {'trend': analysis_data['Trend']['trend_score']})
+        expl = explanation_engine.generate_explanation({'DECISION': rec['recommendation'], 'CONVICTION': conv['rating'], 'RISK_MANAGEMENT': risk}, analysis_data['Trend'])
 
-        # 7. FINAL ENTERPRISE REPORT CONSTRUCTION (The "Final Output")
-        final_report = {
-            "metadata": {"timestamp": datetime.now().isoformat(), "asset": "NIFTY/STOCK"},
-            "market_intelligence": analysis_data,
+        # 7. FINAL ENTERPRISE REPORT
+        return {
+            "metadata": {"timestamp": datetime.now().isoformat(), "version": "PRO-1.0"},
+            "analysis_layer": analysis_data,
             "scoring_matrix": scoring_data,
-            "risk_and_confidence": {"Risk": risk, "Reward": reward, "Confidence": conf, "Conviction": conv},
+            "decision_metrics": {
+                "MasterScore": master_score,
+                "Risk": risk,
+                "Reward": reward,
+                "Confidence": conf,
+                "Conviction": conv
+            },
             "execution_plan": {
-                "EntryZone": entry['entry_zone'], 
-                "EntryPrice": entry['entry_price'], 
-                "StopLoss": sl['initial_sl'], 
+                "EntryZone": entry['entry_zone'],
+                "EntryPrice": entry['entry_price'],
+                "StopLoss": sl['initial_sl'],
                 "Targets": targets['targets']
             },
-            "position_management": {
-                "PositionSize": pos_size['quantity'], 
-                "CapitalAllocation": allocation['allocated_capital'], 
+            "management_layer": {
+                "PositionSize": pos['quantity'],
+                "CapitalAllocation": alloc['allocated_capital'],
                 "HoldingPeriod": holding['expected_duration_days']
             },
-            "final_decision": {
+            "final_verdict": {
                 "Recommendation": rec['recommendation'],
-                "ReasonToBuy": expl['reason'],
-                "AI_Summary": expl['ai_summary'],
-                "WarningSignals": "NONE" if rec['is_actionable'] else "MONITOR_RISK",
-                "ActionPlan": rec['action_plan']
+                "AI_Reasoning": expl['ai_summary'],
+                "WarningSignals": "NONE" if rec['is_actionable'] else "HIGH_RISK_AVOID"
             }
         }
-        
-        return final_report
 
     except Exception as e:
-        logging.error(f"SYSTEM CRITICAL ERROR: {e}")
-        return {"STATUS": "SYSTEM_CRASH", "LOG": str(e)}
+        logging.error(f"CRITICAL MASTER AI FAILURE: {e}")
+        return {"STATUS": "SYSTEM_FAILURE", "ERROR": str(e)}
