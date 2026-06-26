@@ -1,0 +1,11 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment/API keys
+.env
+config.json
+
+# Data files
+*.csv
+*.db
