@@ -1,123 +1,119 @@
-import pandas as pd
 import logging
+import sqlite3
+import time
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Any, List
+from contextlib import contextmanager
 
-# Layer 2: Analysis
-from backend.analyzers import (
-    trend_analyzer, momentum_analyzer, volume_analyzer, 
-    volatility_analyzer, smart_money_analyzer, 
-    institutional_analyzer, fundamental_analyzer
-)
+# 1. TOP-LEVEL IMPORTS
+from backend.analyzers import (trend_analyzer, momentum_analyzer, volume_analyzer, 
+                               volatility_analyzer, smart_money_analyzer, institutional_analyzer)
+from backend.engines import (compounder_engine, swing_engine, long_term_engine)
+from backend.decision import (entry_engine, stoploss_engine, target_engine, risk_engine, 
+                             reward_engine, exit_engine, allocation_engine, position_size_engine, 
+                             confidence_engine, conviction_engine, recommendation_engine)
 
-# Layer 3: Scoring
-from backend.engines import (
-    compounder_engine, swing_engine, long_term_engine,
-    trend_engine, momentum_engine, volume_engine, 
-    volatility_engine, smart_money_engine, institutional_engine, fundamental_engine
-)
-
-# Layer 4: Decision
-from backend.decision import (
-    market_regime_engine, entry_engine, exit_engine, 
-    stoploss_engine, target_engine, risk_engine, 
-    reward_engine, holding_engine, allocation_engine, 
-    position_size_engine, confidence_engine, 
-    conviction_engine, recommendation_engine, explanation_engine
-)
-
-def generate_final_master_report(df: pd.DataFrame, account_balance: float) -> dict:
-    """
-    Enterprise Master AI: The Uncompressed Version.
-    This Engine ensures that every single variable from the Analysis Layer 
-    to the Execution Layer is calculated and reported explicitly.
-    """
-    try:
-        # 1. MARKET REGIME CHECK (Gatekeeping)
-        regime = market_regime_engine.decide_market_permission(df)
-        if regime['trade_permission'] != "ALLOWED":
-            return {"STATUS": "BLOCKED", "REASON": regime['reasoning'], "SYSTEM": "IDLE"}
-
-        # 2. ANALYSIS LAYER (Layer 2)
-        analysis_data = {
-            "Trend": trend_analyzer.analyze_trend(df),
-            "Momentum": momentum_analyzer.analyze_momentum(df),
-            "Volume": volume_analyzer.analyze_volume(df),
-            "Volatility": volatility_analyzer.analyze_volatility(df),
-            "SmartMoney": smart_money_analyzer.analyze_smart_money(df),
-            "Institutional": institutional_analyzer.analyze_institutional(df),
-            "Fundamental": fundamental_analyzer.analyze_fundamentals(df)
+# 2. MASTER ORCHESTRATOR
+class GreenBullOrchestrator:
+    def __init__(self, db_path: str = "audit_trail.db"):
+        self.db_path = db_path
+        self.logger = logging.getLogger("GBR_Production_Stable")
+        self.weights = {
+            "Trend": 0.20, "SmartMoney": 0.20, "Institutional": 0.20,
+            "Risk": 0.15, "Volume": 0.10, "Momentum": 0.10, "Volatility": 0.05
         }
-        
-        # 3. SCORING LAYER (Layer 3)
-        scoring_data = {
-            "Compounder": compounder_engine.calculate_compounder_score(df),
-            "Swing": swing_engine.calculate_swing_score(df),
-            "LongTerm": long_term_engine.calculate_long_term_score(df),
-            "TrendScore": trend_engine.calculate_trend_score(df),
-            "MomentumScore": momentum_engine.calculate_momentum_score(df),
-            "VolumeScore": volume_engine.calculate_volume_score(df),
-            "VolatilityScore": volatility_engine.calculate_volatility_score(df)
-        }
-        # Final Master Score (Weighted Logic)
-        master_score = (scoring_data['Compounder']['score'] * 0.3 + 
-                        scoring_data['Swing']['score'] * 0.25 + 
-                        scoring_data['LongTerm']['score'] * 0.15 +
-                        scoring_data['TrendScore']['score'] * 0.1 +
-                        scoring_data['MomentumScore']['score'] * 0.1 +
-                        scoring_data['VolumeScore']['score'] * 0.05 +
-                        scoring_data['VolatilityScore']['score'] * 0.05)
-        
-        # 4. DECISION & EXECUTION LAYER (Layer 4)
-        entry = entry_engine.get_entry_strategy(df)
-        if entry['action'] != "EXECUTE_ENTRY":
-            return {"STATUS": "WAIT", "REASON": entry.get('reason', 'NO_ENTRY_SIGNAL')}
-            
-        sl = stoploss_engine.calculate_stoploss_levels(df, entry['entry_price'])
-        targets = target_engine.calculate_targets(entry['entry_price'], sl['initial_sl'])
-        
-        # 5. RISK & MANAGEMENT LAYER
-        risk = risk_engine.calculate_risk_metrics(df, entry['entry_price'], sl['initial_sl'], account_balance)
-        reward = reward_engine.calculate_reward_metrics(entry['entry_price'], sl['initial_sl'], 10)
-        conf = confidence_engine.calculate_confidence_score(scoring_data)
-        conv = conviction_engine.calculate_conviction_score(entry, risk, reward)
-        pos = position_size_engine.calculate_position_size(account_balance, 0.02, entry['entry_price'], sl['initial_sl'])
-        alloc = allocation_engine.calculate_allocation(account_balance, [], "GENERAL", master_score)
-        holding = holding_engine.calculate_holding_strategy(df)
-        
-        # 6. VERDICT LAYER
-        rec = recommendation_engine.get_recommendation(master_score, conf['confidence_score'])
-        expl = explanation_engine.generate_explanation({'DECISION': rec['recommendation'], 'CONVICTION': conv['rating'], 'RISK_MANAGEMENT': risk}, analysis_data['Trend'])
+        self._init_db()
 
-        # 7. FINAL ENTERPRISE REPORT
-        return {
-            "metadata": {"timestamp": datetime.now().isoformat(), "version": "PRO-1.0"},
-            "analysis_layer": analysis_data,
-            "scoring_matrix": scoring_data,
-            "decision_metrics": {
-                "MasterScore": master_score,
-                "Risk": risk,
-                "Reward": reward,
-                "Confidence": conf,
-                "Conviction": conv
-            },
-            "execution_plan": {
-                "EntryZone": entry['entry_zone'],
-                "EntryPrice": entry['entry_price'],
-                "StopLoss": sl['initial_sl'],
-                "Targets": targets['targets']
-            },
-            "management_layer": {
-                "PositionSize": pos['quantity'],
-                "CapitalAllocation": alloc['allocated_capital'],
-                "HoldingPeriod": holding['expected_duration_days']
-            },
-            "final_verdict": {
-                "Recommendation": rec['recommendation'],
-                "AI_Reasoning": expl['ai_summary'],
-                "WarningSignals": "NONE" if rec['is_actionable'] else "HIGH_RISK_AVOID"
-            }
+    def _init_db(self):
+        with self._db_connection() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS audit (
+                timestamp TEXT, symbol TEXT, master_score REAL, rec TEXT, 
+                conf REAL, conviction REAL, risk_reward REAL, version TEXT, execution_time REAL)""")
+
+    @contextmanager
+    def _db_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        try: yield conn
+        finally: conn.commit(); conn.close()
+
+    def _validate_production_data(self, df) -> bool:
+        """Strict Production-Grade Validation"""
+        if df.empty or len(df) < 200: return False # Need min candles for EMA200
+        if not all(col in df.columns for col in ['open','high','low','close','volume']): return False
+        if df.isnull().values.any() or (df < 0).any().any(): return False # Negative Volume/Price check
+        if df.index.duplicated().any(): return False
+        return True
+
+    def _run_engine_stable(self, func, ctx) -> Dict[str, Any]:
+        """Strict Execution Contract"""
+        start = time.perf_counter()
+        try:
+            result = func(ctx)
+            if not isinstance(result, dict) or 'score' not in result:
+                raise ValueError(f"Engine {func.__name__} returned invalid contract format")
+            return {"status": "SUCCESS", "data": result, "duration": time.perf_counter() - start}
+        except Exception as e:
+            self.logger.error(f"Engine {func.__name__} Critical Failure: {e}")
+            return {"status": "FAILED", "data": {"score": 0}, "duration": 0}
+
+    def generate_final_master_report(self, ctx) -> Dict[str, Any]:
+        wall_clock_start = time.perf_counter()
+        
+        # 1. Validation
+        if not self._validate_production_data(ctx.df):
+            return {"STATUS": "ERROR", "REASON": "INVALID_PRODUCTION_DATA"}
+
+        # 2. Engine Registry (Complete Integration)
+        registry = {
+            "Trend": trend_analyzer.analyze_trend,
+            "SmartMoney": smart_money_analyzer.analyze_smart_money,
+            "Institutional": institutional_analyzer.analyze_institutional,
+            "Volume": volume_analyzer.analyze_volume,
+            "Momentum": momentum_analyzer.analyze_momentum,
+            "Volatility": volatility_analyzer.analyze_volatility,
+            "Swing": swing_engine.calculate_swing_score
         }
 
-    except Exception as e:
-        logging.error(f"CRITICAL MASTER AI FAILURE: {e}")
-        return {"STATUS": "SYSTEM_FAILURE", "ERROR": str(e)}
+        # 3. Parallel Execution
+        results = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(self._run_engine_stable, func, ctx): name for name, func in registry.items()}
+            for f in as_completed(futures):
+                results[futures[f]] = f.result()
+
+        # 4. Weighted Consensus
+        master_score = sum(results[k]['data']['score'] * self.weights.get(k, 0) for k in results if results[k]['status'] == "SUCCESS")
+
+        # 5. Decision Flow (Safe Dependent Execution)
+        entry = entry_engine.get_entry_strategy(ctx)
+        
+        if entry.get("action") == "EXECUTE_ENTRY":
+            sl = stoploss_engine.calculate_stoploss_levels(ctx, entry.get('price'))
+            target = target_engine.calculate_targets(ctx, entry.get('price'))
+            risk = risk_engine.calculate_risk_metrics(ctx, entry.get('price'), sl.get('price'))
+            pos = position_size_engine.calculate_position_size(ctx, sl.get('price'))
+            conf = confidence_engine.calculate_confidence_score(master_score, results)
+            conv = conviction_engine.calculate_conviction_score(conf)
+            rec = recommendation_engine.get_recommendation(master_score, conf, conv)
+        else:
+            # Safe Fallback
+            entry, sl, target, risk, pos, conf, conv, rec = {}, {}, {}, {}, {}, 0, 0, {"action": "WAIT"}
+
+        # 6. Final Report (Production Ready)
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "master_score": master_score,
+            "recommendation": rec,
+            "execution": {"entry": entry, "sl": sl, "targets": target, "pos": pos},
+            "audit_trail": {name: res['status'] for name, res in results.items()},
+            "performance": {"wall_clock": time.perf_counter() - wall_clock_start, "details": {name: res['duration'] for name, res in results.items()}}
+        }
+
+        # 7. Persistent Audit
+        with self._db_connection() as conn:
+            conn.execute("INSERT INTO audit VALUES (?,?,?,?,?,?,?,?,?)", 
+                         (report['timestamp'], ctx.symbol, master_score, rec.get('action', 'NONE'), 
+                          float(conf), float(conv), float(risk.get('rr_ratio', 0)), "v101", report['performance']['wall_clock']))
+        
+        return report
