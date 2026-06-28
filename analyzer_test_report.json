@@ -1,0 +1,16 @@
+[
+    {
+        "name": "Trend Analyzer",
+        "status": "FAIL",
+        "execution_time": 0.0004,
+        "error": "TrendAnalyzer requires missing columns: ['ema_20', 'ema_50', 'vwap', 'supertrend', 'adx', 'macd_line', 'macd_signal', 'rsi', 'atr_14', 'linreg_slope', 'linreg_r2']",
+        "traceback": "Traceback (most recent call last):\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/test_analyzers.py\", line 17, in run_test\n    result = analyzer.analyze(df)\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/backend/analyzers/trend_analyzer.py\", line 179, in analyze\n    safe_df = self._validate_data(df)\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/backend/analyzers/trend_analyzer.py\", line 153, in _validate_data\n    raise ValueError(f\"TrendAnalyzer requires missing columns: {missing}\")\nValueError: TrendAnalyzer requires missing columns: ['ema_20', 'ema_50', 'vwap', 'supertrend', 'adx', 'macd_line', 'macd_signal', 'rsi', 'atr_14', 'linreg_slope', 'linreg_r2']\n"
+    },
+    {
+        "name": "Momentum Analyzer",
+        "status": "FAIL",
+        "execution_time": 0.0002,
+        "error": "MomentumAnalyzer requires missing columns: ['macd_line', 'macd_signal', 'macd_histogram', 'rsi', 'adx', 'linreg_slope', 'linreg_r2', 'roc', 'momentum', 'atr_14']",
+        "traceback": "Traceback (most recent call last):\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/test_analyzers.py\", line 17, in run_test\n    result = analyzer.analyze(df)\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/backend/analyzers/momentum_analyzer.py\", line 272, in analyze\n    safe_df = self._validate_data(df)\n  File \"/data/data/com.termux/files/home/Smart-AI-Anyalisis/backend/analyzers/momentum_analyzer.py\", line 252, in _validate_data\n    raise ValueError(f\"MomentumAnalyzer requires missing columns: {missing}\")\nValueError: MomentumAnalyzer requires missing columns: ['macd_line', 'macd_signal', 'macd_histogram', 'rsi', 'adx', 'linreg_slope', 'linreg_r2', 'roc', 'momentum', 'atr_14']\n"
+    }
+]
