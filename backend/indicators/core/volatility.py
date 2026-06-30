@@ -768,7 +768,7 @@ def rei(data: pd.DataFrame, length: int = DEFAULT_REI_LEN, offset: int = 0, fill
     return _finalize_output(out, offset, fillna)
 
 # ==============================================================================
-# WRAPPERS
+# WRAPPERS & ADVANCED LOGIC
 # ==============================================================================
 
 def bollinger_upper(data: Union[pd.DataFrame, pd.Series], **kwargs) -> pd.Series:
@@ -801,6 +801,93 @@ def keltner_middle(data: pd.DataFrame, **kwargs) -> pd.Series:
 def atr_trailing_stop(data: pd.DataFrame, **kwargs) -> pd.Series:
     """Wrapper returning Volatility Stop price line."""
     return volatility_stop(data, **kwargs)['stop_price']
+
+def supertrend(data: pd.DataFrame, length: int = 10, multiplier: float = 3.0, offset: int = 0, fillna: Any = None) -> pd.DataFrame:
+    """
+    SuperTrend Indicator (TradingView Standard).
+    
+    Returns a DataFrame containing:
+    - supertrend: The actual trailing stop line
+    - trend: 1 for Bullish, -1 for Bearish
+    - upper_band: Final Upper Band
+    - lower_band: Final Lower Band
+    """
+    validate_length(length, "Supertrend")
+    df = standardize_column_names(data)
+    validate_ohlc(df)
+    
+    # Get ATR and HL2
+    atr_arr = atr(df, length=length).to_numpy()
+    hl2_arr = hl2(df['high'], df['low']).to_numpy()
+    close_arr = df['close'].to_numpy()
+    
+    n = len(close_arr)
+    final_upper = np.full(n, np.nan)
+    final_lower = np.full(n, np.nan)
+    trend = np.full(n, 1)  # Default to bullish
+    st_line = np.full(n, np.nan)
+    
+    basic_upper = hl2_arr + (multiplier * atr_arr)
+    basic_lower = hl2_arr - (multiplier * atr_arr)
+    
+    # Find the first index where ATR is valid (not NaN)
+    first_valid = -1
+    for i in range(n):
+        if not np.isnan(atr_arr[i]):
+            first_valid = i
+            break
+            
+    if first_valid != -1 and first_valid < n:
+        # Initialize base values at first valid index
+        final_upper[first_valid] = basic_upper[first_valid]
+        final_lower[first_valid] = basic_lower[first_valid]
+        trend[first_valid] = 1 if close_arr[first_valid] > hl2_arr[first_valid] else -1
+        st_line[first_valid] = final_lower[first_valid] if trend[first_valid] == 1 else final_upper[first_valid]
+        
+        # O(n) Calculation
+        for i in range(first_valid + 1, n):
+            # Guard against unexpected mid-series NaNs
+            if np.isnan(atr_arr[i]) or np.isnan(hl2_arr[i]):
+                final_upper[i] = final_upper[i-1]
+                final_lower[i] = final_lower[i-1]
+                trend[i] = trend[i-1]
+                st_line[i] = st_line[i-1]
+                continue
+
+            # Calculate Final Upper Band
+            if basic_upper[i] < final_upper[i-1] or close_arr[i-1] > final_upper[i-1]:
+                final_upper[i] = basic_upper[i]
+            else:
+                final_upper[i] = final_upper[i-1]
+                
+            # Calculate Final Lower Band
+            if basic_lower[i] > final_lower[i-1] or close_arr[i-1] < final_lower[i-1]:
+                final_lower[i] = basic_lower[i]
+            else:
+                final_lower[i] = final_lower[i-1]
+                
+            # TradingView Strict Trend Switching Logic
+            if trend[i-1] == -1 and close_arr[i] > final_upper[i-1]:
+                trend[i] = 1
+            elif trend[i-1] == 1 and close_arr[i] < final_lower[i-1]:
+                trend[i] = -1
+            else:
+                trend[i] = trend[i-1]
+                
+            # Assign Final SuperTrend Line (Trailing Stop)
+            if trend[i] == 1:
+                st_line[i] = final_lower[i]
+            else:
+                st_line[i] = final_upper[i]
+
+    out = pd.DataFrame({
+        "supertrend": st_line,
+        "trend": trend,
+        "upper_band": final_upper,
+        "lower_band": final_lower
+    }, index=df.index)
+    
+    return _finalize_output(out, offset, fillna)
 
 # ==============================================================================
 # EXPORTS
@@ -850,5 +937,6 @@ __all__ = [
     "keltner_upper",
     "keltner_lower",
     "keltner_middle",
+    "supertrend",
     "atr_trailing_stop"
 ]

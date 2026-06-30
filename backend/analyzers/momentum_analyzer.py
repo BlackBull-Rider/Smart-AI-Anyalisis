@@ -712,16 +712,27 @@ class MomentumAnalyzer:
         if div['status'] == "Active Divergence": rel *= 0.5
 
         return {
-            "momentum_persistence": round(persistence, 2),
-            "momentum_efficiency": round(np.clip(latest['linreg_r2'] * 100.0, 0.0, 100.0), 2),
-            "momentum_stability": round(np.clip(100.0 - comp['score'], 0.0, 100.0), 2),
-            "momentum_consistency": round(osc_agree, 2),
-            "impulse_strength": round(a['score'], 2),
-            "pullback_strength": round(100.0 - a['score'], 2), # Simplified inverse logic
-            "reversal_probability": round(exh['score'], 2),
-            "continuation_probability": round(rel, 2)
-        }
+    "momentum_persistence": round(persistence, 2),
 
+    "volume_confirmation": round(vol_conf, 2),
+
+    "momentum_quality": round(
+        (
+            np.clip(latest["linreg_r2"] * 100.0, 0.0, 100.0)
+            + osc_agree
+            + vol_conf
+        ) / 3.0,
+        2,
+    ),
+
+    "momentum_efficiency": round(np.clip(latest["linreg_r2"] * 100.0, 0.0, 100.0), 2),
+    "momentum_stability": round(np.clip(100.0 - comp["score"], 0.0, 100.0), 2),
+    "momentum_consistency": round(osc_agree, 2),
+    "impulse_strength": round(a["score"], 2),
+    "pullback_strength": round(100.0 - a["score"], 2),
+    "reversal_probability": round(exh["score"], 2),
+    "continuation_probability": round(rel, 2),
+}
     def _analyze_rsi(self, df: pd.DataFrame) -> RSIAnalysisResult:
         rsi = df['rsi'].iloc[-1]
         sc = np.clip((rsi - 50) * 2.0, -100.0, 100.0)
@@ -761,14 +772,12 @@ class MomentumAnalyzer:
         status = "Active Divergence" if len(types) > 0 else "None"
         
         return {
-            "status": status, 
-            "strength": round(max_str, 2), 
-            "confidence": round(multi_osc_score, 2), 
-            "divergence_type": div_type_str, 
-            "multi_oscillator_score": round(multi_osc_score, 2),
-            "evidence": evidence
-        }
-
+    "status": status,
+    "strength": round(max_str, 2),
+    "type": div_type_str,
+    "confidence": round(multi_osc_score, 2),
+    "evidence": evidence,
+}
 
 # ==============================================================================
 # MODULE EXPORTS

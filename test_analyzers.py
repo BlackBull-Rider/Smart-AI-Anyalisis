@@ -1,94 +1,42 @@
-import json
-import time
-import traceback
-
-from backend.indicators.data_fetcher import fetch_ohlcv
+import yfinance as yf
+import pandas as pd
+from backend.registry.feature_engine import build_features
 from backend.analyzers.trend_analyzer import TrendAnalyzer
 from backend.analyzers.momentum_analyzer import MomentumAnalyzer
 
+def run_test():
+    print("--- টেষ্টিং শুরু হচ্ছে ---")
+    
+    # ১. ডেটা ডাউনলোড (MultiIndex ইস্যু ফিক্সড)
+    df = yf.download("RELIANCE.NS", period="200d", progress=False)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.columns = [str(c).lower() for c in df.columns]
 
-SYMBOL = "RELIANCE"
+    # ২. ইঞ্জিন রান (৭০০+ ইন্ডিকেটর অটোমেটিক প্রসেস হবে)
+    print("ফিচার ইঞ্জিন রান করছি...")
+    df_processed = build_features(df)
+    print(f"ফিচার তৈরি হয়েছে। টোটাল কলাম সংখ্যা: {len(df_processed.columns)}")
 
-
-def run_test(name, analyzer, df):
-    start = time.perf_counter()
-
+    # ৩. TrendAnalyzer টেস্ট
+    print("\n--- TrendAnalyzer টেস্ট ---")
     try:
-        result = analyzer.analyze(df)
-
-        elapsed = time.perf_counter() - start
-
-        return {
-            "name": name,
-            "status": "PASS",
-            "execution_time": round(elapsed, 4),
-            "result_type": type(result).__name__,
-            "keys": list(result.keys()) if isinstance(result, dict) else [],
-        }
-
+        t_analyzer = TrendAnalyzer()
+        t_res = t_analyzer.analyze(df_processed)
+        print(f"Status: {t_res['direction']['status']}")
+        print(f"Score: {t_res['direction']['score']}")
     except Exception as e:
+        print(f"TrendAnalyzer Error: {e}")
 
-        elapsed = time.perf_counter() - start
-
-        return {
-            "name": name,
-            "status": "FAIL",
-            "execution_time": round(elapsed, 4),
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
-
-
-def main():
-
-    print("=" * 80)
-    print("GREEN BULL RIDER ANALYZER TEST")
-    print("=" * 80)
-
-    df = fetch_ohlcv(SYMBOL, limit=500)
-
-    print(f"Rows : {len(df)}")
-    print(f"Columns : {list(df.columns)}")
-    print()
-
-    analyzers = [
-        ("Trend Analyzer", TrendAnalyzer()),
-        ("Momentum Analyzer", MomentumAnalyzer()),
-    ]
-
-    report = []
-
-    for name, analyzer in analyzers:
-
-        print(f"Running {name}...")
-
-        result = run_test(name, analyzer, df)
-
-        report.append(result)
-
-        print(result["status"])
-
-        if result["status"] == "FAIL":
-            print(result["error"])
-
-        print()
-
-    print("=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-
-    passed = sum(r["status"] == "PASS" for r in report)
-    failed = sum(r["status"] == "FAIL" for r in report)
-
-    print(f"PASS : {passed}")
-    print(f"FAIL : {failed}")
-
-    with open("analyzer_test_report.json", "w") as f:
-        json.dump(report, f, indent=4)
-
-    print()
-    print("Report saved -> analyzer_test_report.json")
-
+    # ৪. MomentumAnalyzer টেস্ট
+    print("\n--- MomentumAnalyzer টেস্ট ---")
+    try:
+        m_analyzer = MomentumAnalyzer()
+        m_res = m_analyzer.analyze(df_processed)
+        print(f"Momentum Status: {m_res['momentum_strength']['status']}")
+        print(f"Swing Readiness: {m_res['swing_readiness']['state']}")
+    except Exception as e:
+        print(f"MomentumAnalyzer Error: {e}")
 
 if __name__ == "__main__":
-    main()
+    run_test()

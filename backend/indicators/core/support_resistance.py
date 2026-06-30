@@ -1189,7 +1189,7 @@ def level_reliability_ranking(data: pd.DataFrame, offset: int = 0, fillna: Any =
 # ==============================================================================
 
 __all__ = [
-    "turtle_soup", "judas_swing", "kill_zones", "amd_cycle"
+    "turtle_soup", "judas_swing", "kill_zones", "amd_cycle",
     "SupportResistanceError", "validate_length", "get_price_source",
     "pivot_point", "pivot_support_1", "pivot_support_2", "pivot_support_3", "pivot_resistance_1", "pivot_resistance_2", "pivot_resistance_3", "classic_pivot_levels",
     "floor_pivot", "floor_s1", "floor_s2", "floor_s3", "floor_r1", "floor_r2", "floor_r3",
