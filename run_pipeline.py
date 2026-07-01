@@ -1,8 +1,6 @@
-import yfinance as yf
 import pandas as pd
-
+from backend.data.data_fetcher import fetch_ohlcv
 from backend.registry.feature_engine import build_features
-
 from backend.analyzers.trend_analyzer import TrendAnalyzer
 from backend.analyzers.momentum_analyzer import MomentumAnalyzer
 from backend.analyzers.volatility_analyzer import VolatilityAnalyzer
@@ -11,47 +9,44 @@ from backend.analyzers.candle_analyzer import CandleAnalyzer
 from backend.analyzers.pattern_analyzer import PatternAnalyzer
 
 TEST_STOCKS = [
-    "ADANIPOWER.NS",
-    "ADANIENT.NS",
-    "ADANIPORTS.NS",
-    "APOLLOHOSP.NS",
-    "ASHOKLEY.NS",
-    "ASIANPAINT.NS",
-    "AXISBANK.NS",
-    "BAJAJ-AUTO.NS",
-    "BAJAJCON.NS",
-    "BAJAJFINSV.NS",
-    "BAJFINANCE.NS",
-    "BALAMINES.NS",
-    "BANDHANBNK.NS",
-    "BANKBARODA.NS",
-    "BHARTIARTL.NS",
-    "BPCL.NS",
-    "BRITANNIA.NS",
-    "CANBK.NS",
-    "CENTRALBK.NS",
-    "CHOLAFIN.NS",
-    "CIPLA.NS",
-    "COALINDIA.NS",
-    "CPSEETF.NS",
-    "DCBBANK.NS",
-    "DIVISLAB.NS",
-    "DRREDDY.NS",
-    "EICHERMOT.NS",
-    "ETERNAL.NS",
-    "FEDERALBNK.NS",
-    "GAIL.NS"
+    "ADANIPOWER",
+    "ADANIENT",
+    "ADANIPORTS",
+    "APOLLOHOSP",
+    "ASHOKLEY",
+    "ASIANPAINT",
+    "AXISBANK",
+    "BAJAJ-AUTO",
+    "BAJAJCON",
+    "BAJAJFINSV",
+    "BAJFINANCE",
+    "BALAMINES",
+    "BANDHANBNK",
+    "BANKBARODA",
+    "BHARTIARTL",
+    "BPCL",
+    "BRITANNIA",
+    "CANBK",
+    "CENTRALBK",
+    "CHOLAFIN",
+    "CIPLA",
+    "COALINDIA",
+    "CPSEETF",
+    "DCBBANK",
+    "DIVISLAB",
+    "DRREDDY",
+    "EICHERMOT",
+    "ETERNAL",
+    "FEDERALBNK",
+    "GAIL"
 ]
 
-
 def run():
-
     total = 0
     success = 0
     failed = 0
 
     for symbol in TEST_STOCKS:
-
         total += 1
 
         print("\n" + "=" * 80)
@@ -59,22 +54,18 @@ def run():
         print("=" * 80)
 
         try:
-
             print("Fetching data...")
 
-            df = yf.download(
-                symbol,
-                period="300d",
-                progress=False,
-                auto_adjust=False
-            )
+            # ১. ডাটাবেসের সাথে নাম ম্যাচ করার জন্য .NS রিমুভ করা হলো
+            clean_symbol = symbol.replace(".NS", "")
+
+            # ২. yfinance বাদ দিয়ে লোকাল ডাটাবেস থেকে ফেচ করা হলো
+            df = fetch_ohlcv(clean_symbol, limit=300)
 
             if df.empty:
                 raise Exception("No Data")
 
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-
+            # ৩. লোকাল ডিবিতে MultiIndex থাকে না, তাই শুধু কলামের নাম লোয়ারকেস (lowercase) করা হলো
             df.columns = [str(c).lower() for c in df.columns]
 
             print("Building Features...")
