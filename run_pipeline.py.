@@ -125,11 +125,12 @@ def run():
             candle = CandleAnalyzer().analyze(df)
 
             if "candle_psychology" in candle:
-                candle_state = candle["candle_psychology"].get("status", "Unknown")
+             candle_state = candle["candle_psychology"].get("status", "Unknown")
             else:
                 candle_state = "Unknown"
 
-            print("Candle :", candle_state)
+            print(
+                "Candle :", candle_state)
 
             print("Running Pattern Analyzer...")
             pattern = PatternAnalyzer().analyze(df)
@@ -145,11 +146,15 @@ def run():
 
             print("Pattern :", pattern_state)
 
+
             print("STATUS : PASS")
+
             success += 1
 
         except Exception as e:
+
             failed += 1
+
             print("STATUS : FAILED")
             print(type(e).__name__)
             print(e)

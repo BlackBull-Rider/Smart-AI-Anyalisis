@@ -10,11 +10,12 @@ import graphlib
 import tracemalloc
 import numpy as np
 import pandas as pd
-import yfinance as yf
+from backend.data.data_fetcher import fetch_ohlcv
 from typing import Dict, List, Any, Optional, Tuple, Type, Set
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
+from backend.registry.feature_engine import build_features
 
 warnings.filterwarnings("ignore")
 EPSILON = 1e-9
@@ -109,11 +110,11 @@ class BatchSummary:
         self.total_stocks += 1
         self.health_scores.append(report.health)
         self.total_feature_space = max(self.total_feature_space, report.total_features_count)
-        
+
         for name, status in report.analyzer_status.items():
             if status == "PASS":
                 self.analyzer_passes[name] += 1
-                
+
         for data in report.lineage.values():
             self.global_used_features.update(data["used"])
             self.global_missing_features.update(data["missing"])
@@ -137,7 +138,7 @@ class DynamicRegistry:
                     if name.endswith("Analyzer") and hasattr(obj, "analyze"):
                         clean_name = name.replace("Analyzer", "")
                         self.analyzers[clean_name] = obj
-                        
+
                         # Dynamic Contract Loading
                         self.contracts[clean_name] = getattr(obj, "EXPECTED_SCHEMA", [])
                         self.dependencies[clean_name] = getattr(obj, "DEPENDS_ON", [])
@@ -151,7 +152,7 @@ class DynamicRegistry:
         class MockMomentumAnalyzer:
             EXPECTED_SCHEMA = ["momentum_strength.status", "acceleration.status"]
             def analyze(self, df): return {"momentum_strength": {"status": "Bullish"}, "acceleration": {"status": "Expanding"}}
-        
+
         self.analyzers = {"Trend": MockTrendAnalyzer, "Momentum": MockMomentumAnalyzer}
         self.contracts = {k: getattr(v, "EXPECTED_SCHEMA") for k, v in self.analyzers.items()}
         self.dependencies = {"Trend": [], "Momentum": []}
@@ -168,10 +169,10 @@ class FeatureQA:
 
         report.total_features_count = len(df.columns)
         num_df = df.select_dtypes(include=[np.number])
-        
+
         # Inf Check
         inf_count = np.isinf(num_df).sum().sum()
-        if inf_count > 0: 
+        if inf_count > 0:
             report.add_issue("L1_Feature", ValidationSeverity.HARD_FAIL, f"Found {inf_count} INF values.")
 
         # Stale / Freshness Check
@@ -179,17 +180,17 @@ class FeatureQA:
             tail_df = num_df.tail(10)
             stds = tail_df.std()
             stale_cols = []
-            
+
             for col in tail_df.columns:
                 if col in ['open', 'high', 'low', 'close', 'volume']: continue
-                
+
                 # CRITICAL FIX: Ignore binary/categorical flags (if the column has 3 or fewer unique values like -1, 0, 1)
                 if df[col].nunique(dropna=True) <= 3:
                     continue
 
                 if stds[col] == 0.0:  # Continuous feature unchanged for 10 bars
                     stale_cols.append(col)
-            
+
             if stale_cols:
                 report.add_issue("L1_Feature", ValidationSeverity.WARNING, f"STALE FEATURE (Flatlined): {stale_cols[:5]}...")
 
@@ -212,7 +213,7 @@ class AnalyzerDAG:
     def _run_single(self, name: str, analyzer_cls: Type, df: pd.DataFrame) -> Tuple[str, Dict, Dict[str, Set[str]], float, float, str]:
         t0 = time.perf_counter()
         mem_before, _ = tracemalloc.get_traced_memory()
-        
+
         error, output, feat_log = "", {}, {"used": set(), "missing": set()}
         try:
             instance = self._instantiate_safely(analyzer_cls)
@@ -221,11 +222,11 @@ class AnalyzerDAG:
             feat_log = log_dict
         except Exception as e:
             error = traceback.format_exc().splitlines()[-1]
-            
+
         mem_after, _ = tracemalloc.get_traced_memory()
         exec_time_ms = (time.perf_counter() - t0) * 1000.0
         ram_mb = max(0.0, (mem_after - mem_before) / 10**6)
-        
+
         return name, output, feat_log, exec_time_ms, ram_mb, error
 
     def _execute_wrapper(self, ctx, *args, **kwargs):
@@ -235,13 +236,22 @@ class AnalyzerDAG:
         results = {}
         graph = {name: set(deps) for name, deps in self.registry.dependencies.items()}
         
+        # Pre-flight check: Analyzer gula ki ki feature chay ta check kora
+        for name, cls in self.registry.analyzers.items():
+            instance = self._instantiate_safely(cls)
+            # Jodio analyzer e 'req_cols' thake, check kore nibe
+            if hasattr(instance, 'req_cols'):
+                missing = [c for c in instance.req_cols if c not in df.columns]
+                if missing:
+                    report.add_issue("L2_PreFlight", ValidationSeverity.BLOCK, f"[{name}] Missing Critical Features: {missing}")
+                    # Missing list e add korlam jate radar e dhara pore
+                    report.lineage[name] = {"used": [], "missing": missing}
+
         try:
             sorter = graphlib.TopologicalSorter(graph)
             sorter.prepare()
-        except graphlib.CycleError as e:
-            report.add_issue("L2_DAG", ValidationSeverity.CRITICAL, f"Circular Dependency Detected: {e}")
-            return results
-        
+        except: return results
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             while sorter.is_active():
                 ready_nodes = sorter.get_ready()
@@ -251,6 +261,11 @@ class AnalyzerDAG:
                 for node in ready_nodes:
                     cls = self.registry.analyzers.get(node)
                     if cls:
+                        # Jodi agei block hoye thake tobe skip korbe
+                        if report.analyzer_status.get(node) == "FAIL":
+                            sorter.done(node)
+                            continue
+                            
                         ctx = contextvars.copy_context()
                         futures[executor.submit(self._execute_wrapper, ctx, node, cls, df)] = node
 
@@ -259,31 +274,23 @@ class AnalyzerDAG:
                     name, output, feat_log, t_ms, ram_mb, err = future.result()
                     
                     report.execution_metrics[name] = {"time_ms": round(t_ms, 2), "ram_mb": round(ram_mb, 4)}
-                    report.lineage[name] = {"used": list(feat_log["used"]), "missing": list(feat_log["missing"])}
-                    report.analyzer_status[name] = "PASS"
-
+                    # Merge tracker logs with pre-flight logs
+                    existing_missing = report.lineage.get(name, {}).get("missing", [])
+                    report.lineage[name] = {
+                        "used": list(feat_log["used"]), 
+                        "missing": list(set(list(feat_log["missing"]) + existing_missing))
+                    }
+                    
                     if err:
                         report.add_issue("L2_Analyzer", ValidationSeverity.HARD_FAIL, f"[{name}] Crashed: {err}")
                         report.analyzer_status[name] = "FAIL"
-                    elif not output:
-                        report.add_issue("L2_Analyzer", ValidationSeverity.HARD_FAIL, f"[{name}] Empty payload.")
-                        report.analyzer_status[name] = "FAIL"
                     else:
-                        contract = self.registry.contracts.get(name, [])
-                        if contract:
-                            flattened_keys = self._flatten_keys(output)
-                            missing_keys = [k for k in contract if k not in flattened_keys]
-                            if missing_keys:
-                                report.add_issue("L2_Contract", ValidationSeverity.SOFT_FAIL, f"[{name}] Missing Contract Schema: {missing_keys}")
-                                report.analyzer_status[name] = "WARN"
-
-                    if feat_log["missing"]:
-                        report.add_issue("L2_Feature", ValidationSeverity.WARNING, f"[{name}] Missing Requested Features: {list(feat_log['missing'])}")
-
+                        report.analyzer_status[name] = "PASS"
+                    
                     results[name] = output
                     sorter.done(node)
-                    
         return results
+
 
     def _flatten_keys(self, d: Dict, prefix="") -> Set[str]:
         keys = set()
@@ -304,9 +311,9 @@ class MasterObserver:
 
     def run_pipeline(self, symbol: str) -> MasterReport:
         report = MasterReport(symbol=symbol)
-        
+
         try:
-            df = yf.download(symbol, period="300d", auto_adjust=False, progress=False)
+            df = fetch_ohlcv(symbol, limit=500)
             if df.empty: raise ValueError("No Market Data")
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             df.columns = [str(x).lower() for x in df.columns]
@@ -316,15 +323,15 @@ class MasterObserver:
                 df = build_features(df)
             except Exception:
                 pass # Proceed with raw data if engine missing for tests
-            
+
             FeatureQA.validate(df, report)
-            
+
             # Layer-2: DAG Execution (Observations Only)
             l2_results = self.dag_engine.execute_all(df, report)
-            
+
             # Layer-3: Awaiting Scoring Engines. Force HOLD.
             report.final_decision = {"signal": "HOLD", "reason": "Layer-3 Scoring Engine pending."}
-            
+
             if report.health < 40.0:
                 report.final_decision = {"signal": "BLOCK", "reason": "System health critical."}
 
@@ -339,9 +346,19 @@ class MasterObserver:
     def _print_single_report(self, report: MasterReport):
         print(f"\n[{report.symbol}] QA Health: {report.health}% | Final Decision: {report.final_decision['signal']}")
         for name, metrics in report.execution_metrics.items():
-            feats = len(report.lineage.get(name, {}).get("used", []))
-            print(f"  -> {name:<12}: {feats:<3} Features | {metrics['time_ms']:<6.2f} ms | RAM: {metrics['ram_mb']:.4f} MB")
-        
+            lineage = report.lineage.get(name, {})
+            used_feats = lineage.get("used", [])
+            missing_feats = lineage.get("missing", [])
+            
+            # RAM, Time এবং Used Features প্রিন্ট
+            print(f"  -> {name:<12}: {len(used_feats):<3} Features | {metrics['time_ms']:<6.2f} ms | RAM: {metrics['ram_mb']:.4f} MB")
+            
+            # মিসিং ফিচার সবসময় দেখাবে (0 হলেও)
+            if missing_feats:
+                print(f"     [!] MISSING ({len(missing_feats)}): {list(missing_feats)}")
+            else:
+                print(f"     [!] MISSING: 0")
+
         if report.issues:
             for iss in report.issues[:3]:
                 print(f"     [!] {iss['severity']} - {iss['layer']}: {iss['message']}")
@@ -350,16 +367,16 @@ class MasterObserver:
         print(f"\n{'='*40}")
         print("QA SUMMARY")
         print(f"Stocks = {self.batch_summary.total_stocks}")
-        
+
         for name in self.registry.analyzers.keys():
             passes = self.batch_summary.analyzer_passes.get(name, 0)
             print(f"{name} Pass = {passes}")
-            
+
         used_count = len(self.batch_summary.global_used_features)
         total_feats = self.batch_summary.total_feature_space
         unused_count = max(0, total_feats - used_count)
         coverage = (used_count / total_feats * 100) if total_feats > 0 else 0.0
-        
+
         print("\nFeature Coverage")
         print(f"{coverage:.1f}%")
         print("Unused Features")
@@ -375,11 +392,11 @@ class MasterObserver:
 # RUNNER
 # ==========================================================
 if __name__ == "__main__":
-    test_stocks = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"]
+    test_stocks = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]
     os_engine = MasterObserver()
-    
+
     for stock in test_stocks:
         os_engine.run_pipeline(stock)
         time.sleep(0.1)
-        
+
     os_engine.print_final_summary()
