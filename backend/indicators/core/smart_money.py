@@ -364,11 +364,25 @@ def get_price_source(data: Union[pd.DataFrame, pd.Series], source: str = 'close'
     raise SmartMoneyIndicatorError(f"Invalid source '{source}'.")
 
 # ==============================================================================
-# CORE EXECUTION WRAPPERS (To prevent redundant calculations)
+# CORE EXECUTION WRAPPERS (With Global Memory Cache)
 # ==============================================================================
 
+_SMC_GLOBAL_CACHE = {}
+
 def _run_core_smc(data: pd.DataFrame, length: int) -> dict:
-    """Runs the core JIT engines completely functionally. No global mutable cache."""
+    """Runs the core JIT engines with Global Memory Caching to prevent redundant executions."""
+    global _SMC_GLOBAL_CACHE
+    
+    # Create a unique signature for the current dataframe state
+    cache_key = (id(data), len(data), length)
+    
+    if cache_key in _SMC_GLOBAL_CACHE:
+        return _SMC_GLOBAL_CACHE[cache_key]
+        
+    # Prevent memory leaks by keeping cache small
+    if len(_SMC_GLOBAL_CACHE) > 10:
+        _SMC_GLOBAL_CACHE.clear()
+
     o, h, l, c, v, idx = _extract_ohlcv(data)
     atr = _atr_jit(h, l, c, 14)
     
@@ -376,13 +390,16 @@ def _run_core_smc(data: pd.DataFrame, length: int) -> dict:
     bsl_sw, ssl_sw, eqh, eql, rest_bsl, rest_ssl = _liquidity_engine_jit(h, l, c, sh, sl, atr)
     fvg_s, f_t, f_b, f_age, ob_s, o_t, o_b, o_age, mss = _ob_fvg_lifecycle_jit(o, h, l, c, v, atr, bos, bsl_sw, ssl_sw)
     
-    return {
+    result = {
         "idx": idx, "sh": sh, "sl": sl, "hh": hh, "hl": hl, "lh": lh, "ll": ll, 
         "bos": bos, "choch": choch, "trend": trend, "bsl_sw": bsl_sw, "ssl_sw": ssl_sw, 
         "eqh": eqh, "eql": eql, "rest_bsl": rest_bsl, "rest_ssl": rest_ssl,
         "fvg_s": fvg_s, "f_t": f_t, "f_b": f_b, "f_age": f_age,
         "ob_s": ob_s, "o_t": o_t, "o_b": o_b, "o_age": o_age, "mss": mss
     }
+    
+    _SMC_GLOBAL_CACHE[cache_key] = result
+    return result
 
 # ==============================================================================
 # 1. MARKET STRUCTURE

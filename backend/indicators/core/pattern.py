@@ -1,11 +1,3 @@
-"""
-backend/indicators/core/pattern.py
-
-Green Bull Rider V109 - Sovereign Layer-1 Structural Geometry Engine
-Strictly Layer-1 Geometric Pattern Detection Engine.
-Calculates structural chart primitives purely from mathematical logic.
-"""
-
 import numpy as np
 import pandas as pd
 
@@ -24,7 +16,7 @@ CONFIG = {
     "r2_threshold": 0.85,
     "flat_slope_threshold": 0.0015,
     "parallel_threshold": 0.002,
-    "extrema_match_pct": 0.015,
+    "extrema_match_pct": 0.005,
     "pole_momentum_pct": 0.04,
     "flag_retracement_limit": 0.5,
     "volume_decay_ratio": 0.8,
@@ -291,9 +283,9 @@ def calculate_patterns(df: pd.DataFrame) -> pd.DataFrame:
             l_rim_t = np.min(low[i-30:i-20])
             m_bowl_t = np.max(high[i-20:i-10])
             r_rim_t = np.min(low[i-10:i])
-            if l_rim_t < m_bowl_t * 0.95 and r_rim_t < m_bowl_t * 0.95:
+            if l_rim_t < m_bowl_t * 0.85 and r_rim_t < m_bowl_t * 0.85:
                 if abs(l_rim_t - r_rim_t) / (l_rim_t + EPSILON) < 0.05:
-                    out["rounding_top_detected"][i] = 1.0
+                    out["rounding_top_detected"][i] = 80.0
                     out["pattern_confidence"][i] = 85.0
                     _set_family(i, "Reversal")
 
