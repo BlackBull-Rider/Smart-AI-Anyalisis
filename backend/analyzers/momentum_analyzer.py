@@ -234,12 +234,22 @@ class MomentumAnalyzer:
     and multi-factor swing readiness using pure functional arrays.
     """
 
+    # ==============================================================================
+    # EXPLICIT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
+    # ==========================================================
+    EXPECTED_SCHEMA = [
+        'macd_line', 'macd_signal', 'macd_histogram', 
+        'rsi', 'adx', 'linreg_slope', 'linreg_r2', 
+        'roc', 'momentum', 'atr_14'
+    ]
+
     def __init__(self):
         self.req_cols = [
             'open', 'high', 'low', 'close', 'volume',
             'macd_line', 'macd_signal', 'macd_histogram',
             'rsi', 'adx', 'linreg_slope', 'linreg_r2', 'roc', 'momentum', 'atr_14'
         ]
+
         self.opt_cols = [
             'bos', 'choch', 'ob_active', 'fvg_active', 'liq_sweep'
         ]

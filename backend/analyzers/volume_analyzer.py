@@ -198,13 +198,16 @@ def _pivot_divergence_engine_jit(price: np.ndarray, osc: np.ndarray, lookback: i
 # ==============================================================================
 # VOLUME ANALYZER ENGINE (PURE LAYER-2)
 # ==============================================================================
-
 class VolumeAnalyzer:
-    """
-    Institutional Volume Analyzer (Layer-2 V2).
-    Implements Dynamic Feature Resolution, Pivot-Based JIT Divergence, 
-    and Ensemble Probability Modeling.
-    """
+    # ==============================================================================
+    # EXPLICIT CONTRACT: মাস্টার অবজারভারের জন্য
+    # ==============================================================================
+    EXPECTED_SCHEMA = [
+        'relative_volume', 'volume_zscore', 'volume_percentile', 
+        'delivery_percent', 'delivery_quantity', 'vwap', 
+        'obv', 'cmf', 'adl', 'vpt', 'mfi', 'money_flow', 
+        'force_index', 'accdist', 'nvi', 'pvi'
+    ]
 
     def __init__(self):
         self.req_cols = ['open', 'high', 'low', 'close', 'volume']

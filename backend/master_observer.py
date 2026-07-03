@@ -10,11 +10,12 @@ import graphlib
 import tracemalloc
 import numpy as np
 import pandas as pd
-from backend.data.data_fetcher import fetch_ohlcv
 from typing import Dict, List, Any, Tuple, Type, Set
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
+
+from backend.data.data_fetcher import fetch_ohlcv, fetch_fundamental, fetch_ipo
 from backend.registry.feature_engine import build_features
 
 warnings.filterwarnings("ignore")
@@ -23,7 +24,6 @@ warnings.filterwarnings("ignore")
 # 1. RUNTIME AUDITOR (Monkey Patch for 100% True 'Used' Count)
 # ==========================================================
 _access_log_var = contextvars.ContextVar('access_log', default=None)
-
 _orig_df_getitem = pd.DataFrame.__getitem__
 _orig_df_get = pd.DataFrame.get
 _orig_series_getitem = pd.Series.__getitem__
@@ -119,19 +119,18 @@ class BatchSummary:
     def add_report(self, report: MasterReport, req: int, used: int, l1_miss: int, unused: int):
         self.total_stocks += 1
         self.health_scores.append(report.health)
-        
+
         for name, status in report.analyzer_status.items():
             if status == "PASS":
                 self.analyzer_passes[name] += 1
-                
+
         self.total_req_feature += req
         self.total_feature_used += used
         self.total_missing_feature += (l1_miss + unused)
         self.total_listed_feature += report.total_features_count
 
-
 # ==========================================================
-# 3. REGISTRY (Absolute Explicit Contracts Only)
+# 3. REGISTRY (Dynamic Contract Extraction from Analyzer Logic)
 # ==========================================================
 class DynamicRegistry:
     def __init__(self):
@@ -149,15 +148,34 @@ class DynamicRegistry:
                     if name.endswith("Analyzer") and hasattr(obj, "analyze"):
                         clean_name = name.replace("Analyzer", "")
                         self.analyzers[clean_name] = obj
-                        
-                        # একমাত্র সত্য: EXPECTED_SCHEMA
-                        # কোনো ম্যাজিক স্ক্যানার নেই। না থাকলে 0 হবে।
-                        schema = getattr(obj, "EXPECTED_SCHEMA", [])
-                        self.contracts[clean_name] = schema
+
+                        # ১. সেফলি অ্যানালাইজার ইন্সট্যান্স তৈরি করা (যাতে __init__ এর ভেরিয়েবল রিড করা যায়)
+                        try:
+                            sig = inspect.signature(obj.__init__)
+                            params = [p for p in sig.parameters if p != 'self']
+                            instance = obj(config={}) if params else obj()
+                        except Exception:
+                            instance = obj
+
+                        # ২. অ্যানালাইজারের নিজস্ব লজিক থেকে কন্ট্রাক্ট এক্সট্র্যাক্ট করা
+                        schema = set()
+                        attr_names = [
+                            'CRITICAL_FEATURES', 'L1_FEATURES', 'OPTIONAL_FEATURES',
+                            'req_cols', 'opt_cols', 'required_cols', 'optional_cols',
+                            'EXPECTED_SCHEMA'
+                        ]
+
+                        for attr in attr_names:
+                            val = getattr(instance, attr, getattr(obj, attr, []))
+                            if isinstance(val, list):
+                                schema.update(val)
+
+                        # বেসিক প্রাইস ডেটা (OHLCV) অডিট থেকে বাদ দেওয়া হলো কারণ এগুলো গ্লোবাল
+                        schema -= {'open', 'high', 'low', 'close', 'volume'}
+                        self.contracts[clean_name] = list(schema)
                         self.dependencies[clean_name] = getattr(obj, "DEPENDS_ON", [])
         except Exception as e:
             print(f"CRITICAL: Discovery Engine Failed: {e}")
-
 
 # ==========================================================
 # 4. DATA QA
@@ -167,7 +185,6 @@ class FeatureQA:
     def validate(df: pd.DataFrame, report: MasterReport):
         if df is None or df.empty: return
         report.total_features_count = len(df.columns)
-
 
 # ==========================================================
 # 5. DAG EXECUTION & 80% COMPLIANCE CHECK
@@ -217,21 +234,20 @@ class AnalyzerDAG:
             while sorter.is_active():
                 ready_nodes = sorter.get_ready()
                 if not ready_nodes: break
-                
+
                 futures = {}
                 for node in ready_nodes:
                     cls = self.registry.analyzers.get(node)
                     if not cls: continue
-                    
+
                     expected = set(self.registry.contracts.get(node, []))
                     available = set(df.columns)
-                    
                     present_features = expected.intersection(available)
                     l1_missing = expected - available
-                    
+
                     # যদি কন্ট্রাক্টে কিছু না থাকে, আমরা কভারেজ 1.0 ধরে রান হতে দেব (যাতে আটকে না যায়)
                     coverage = (len(present_features) / len(expected)) if expected else 1.0
-                    
+
                     if coverage >= 0.8:
                         ctx = contextvars.copy_context()
                         futures[executor.submit(self._execute_wrapper, ctx, node, cls, df)] = (node, expected, l1_missing)
@@ -240,7 +256,7 @@ class AnalyzerDAG:
                             "req": len(expected),
                             "used": [],
                             "l1_missing": list(l1_missing),
-                            "unused_contract": list(present_features) 
+                            "unused_contract": list(present_features)
                         }
                         report.add_issue(node, ValidationSeverity.BLOCK, f"Coverage {coverage*100:.1f}% (<80%). Missing: {list(l1_missing)}")
                         report.analyzer_status[node] = "BLOCKED"
@@ -255,7 +271,7 @@ class AnalyzerDAG:
 
                     # রানটাইমে যা যা আসল ইউজ হয়েছে (MonkeyPatch থেকে প্রাপ্ত)
                     runtime_used = (set(feat_log["used"]) - {'open', 'high', 'low', 'close', 'volume'}).intersection(expected)
-                    
+
                     present_features = expected - l1_missing
                     unused_contract = present_features - runtime_used
 
@@ -275,8 +291,8 @@ class AnalyzerDAG:
 
                     results[name] = output
                     sorter.done(node)
-        return results
 
+        return results
 
 # ==========================================================
 # 6. MASTER OS ORCHESTRATOR & UI
@@ -290,16 +306,33 @@ class MasterObserver:
     def run_pipeline(self, symbol: str) -> MasterReport:
         report = MasterReport(symbol=symbol)
         try:
+            # ১. OHLCV ডেটা ফেচ
             df = fetch_ohlcv(symbol, limit=500)
             if df.empty: raise ValueError("No Market Data")
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             df.columns = [str(x).lower() for x in df.columns]
 
-            try: df = build_features(df)
-            except Exception: pass
+            # ২. Fundamental আর IPO ফেচ (এরর হ্যান্ডেল করে যাতে ক্র্যাশ না করে)
+            try:
+                fund = fetch_fundamental(symbol)
+            except Exception:
+                fund = pd.Series()
+                
+            try:
+                ipo = fetch_ipo(symbol)
+            except Exception:
+                ipo = None
+
+            # ৩. ফিচার ইঞ্জিন কল (সরাসরি নতুন ডেটাগুলো পাস করে)
+            try:
+                df = build_features(df, fundamental=fund, ipo=ipo)
+            except Exception as e:
+                print(f"\n❌ [CRITICAL] Feature Engine CRASHED for {symbol}: {e}\n")
 
             FeatureQA.validate(df, report)
             l2_results = self.dag_engine.execute_all(df, report)
+            
+            # --- এর নিচের বাকি কোড (TERMINAL UI ইত্যাদি) যেমন ছিল তেমনই থাকবে ---
 
             # TERMINAL UI
             print(f"\n{'='*115}")
@@ -322,19 +355,40 @@ class MasterObserver:
                 unused_cnt = len(unused_list)
 
                 missing_str = f"({','.join(l1_miss_list)})" if l1_miss_list else ""
-                if len(missing_str) > 35: missing_str = missing_str[:32] + "...)"
+                if len(missing_str) > 35: missing_str = missing_str[:32] + "..."
 
                 action = "N/A"
                 status = report.analyzer_status.get(analyzer_name)
 
-                if status == "FAIL": action = "CRASHED"
-                elif status == "BLOCKED": action = "BLOCKED (<80%)"
+                if status == "FAIL":
+                    action = "CRASHED"
+                elif status == "BLOCKED":
+                    action = "BLOCKED (<80%)"
                 elif isinstance(result, dict):
-                    if 'summary' in result: action = result['summary'].get('action', 'N/A')
+                    name_lower = analyzer_name.lower()
+                    if name_lower == "trend":
+                        if "trend" in result:
+                            action = str(result["trend"].get("state", result["trend"].get("regime", "Unknown")))
+                        else:
+                            action = str(result.get("direction", {}).get("status", "Unknown"))
+                    elif name_lower == "momentum":
+                        if "momentum_strength" in result:
+                            action = str(result["momentum_strength"].get("status", "Unknown"))
+                        else:
+                            action = str(result.get("strength", {}).get("state", result.get("strength", {}).get("status", "Unknown")))
+                    elif name_lower == "volatility":
+                        action = str(result.get("state", {}).get("regime", "Unknown"))
+                    elif name_lower == "volume":
+                        action = str(result.get("smart_volume", {}).get("dominance", "Unknown"))
+                    elif name_lower == "candle":
+                        action = str(result.get("candle_psychology", {}).get("status", "Unknown"))
+                    elif name_lower == "pattern":
+                        pat = result.get("advanced_pattern_metrics", {}).get("primary_pattern_id", "NONE")
+                        action = "No Pattern" if pat == "NONE" else f"{pat} Detected"
+                    elif name_lower in ["smartmoney", "supportresistance"]:
+                        action = str(result.get("summary", {}).get("action", "WAIT"))
                     else:
-                        for k, v in result.items():
-                            if isinstance(v, dict) and any(x in v for x in ['status', 'regime', 'dominance']):
-                                action = str(v.get('status', v.get('regime', v.get('dominance')))); break
+                        action = "Executed"
 
                 if len(action) > 18: action = action[:15] + "..."
 
@@ -383,9 +437,8 @@ class MasterObserver:
         print(f"Avg System Health    : {avg_health:.1f}%")
         print(f"{'='*70}\n")
 
-
 if __name__ == "__main__":
-    test_stocks = ["RELIANCE", "TCS", "INFY"]
+    test_stocks = ["SEDEMAC", "AXISBANK", "TRENT", "FEDERALBNK"]
     os_engine = MasterObserver()
 
     for stock in test_stocks:

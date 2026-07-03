@@ -13,7 +13,7 @@ PATTERN_CONFIG = {
     "feature_importance": {"volume_confirmation": 2.0, "pattern_confidence": 2.0, "breakout_strength": 1.5, "market_regime": 1.0, "liquidity_sweep": 1.5, "trend_direction": 1.0, "efficiency_ratio": 1.0},
     "regime_weights": {"Trending": 10.0, "Accumulation": 8.0, "Distribution": 8.0, "Volatile": 6.0, "Compression": 5.0, "Mean Reversion": 4.0, "Neutral": 5.0},
     "false_breakout_multipliers": {"FLAG": 0.8, "PENNANT": 0.8, "CUP_HANDLE": 0.7, "ROUNDING_BOTTOM": 0.7, "ROUNDING_TOP": 0.7, "HEAD_SHOULDERS": 0.7, "INV_HEAD_SHOULDERS": 0.7, "TRIANGLE": 1.2, "WEDGE": 1.1, "CHANNEL": 1.0, "RECTANGLE": 1.3, "DOUBLE_TOP": 1.0, "DOUBLE_BOTTOM": 1.0, "TRIPLE_TOP": 0.9, "TRIPLE_BOTTOM": 0.9},
-    "priority": {"CUP_HANDLE": 1, "ROUNDING_BOTTOM": 1, "ROUNDING_TOP": 1, "HEAD_SHOULDERS": 2, "INV_HEAD_SHOULDERS": 2, "TRIPLE_TOP": 3, "TRIPLE_BOTTOM": 3, "DOUBLE_TOP": 4, "DOUBLE_BOTTOM": 4, "TRIANGLE": 5, "WEDGE": 6, "FLAG": 7, "PENNANT": 8, "CHANNEL": 9, "RECTANGLE": 10},
+    "priority": {"TRIANGLE": 1, "WEDGE": 2, "FLAG": 3, "PENNANT": 4, "CHANNEL": 5, "RECTANGLE": 6, "HEAD_SHOULDERS": 7, "INV_HEAD_SHOULDERS": 8, "CUP_HANDLE": 9, "DOUBLE_TOP": 10, "DOUBLE_BOTTOM": 10, "TRIPLE_TOP": 11, "TRIPLE_BOTTOM": 11, "ROUNDING_TOP": 12, "ROUNDING_BOTTOM": 12},
     "penalties": {"missing_l1_feature_base": 0.90},
     "base_probabilities": {"continuation_breakout": 60.0, "reversal_breakout": 40.0, "failure": 40.0},
     "multipliers": {"target": {"flag": 4.0, "triangle": 3.0, "channel": 3.0, "rectangle": 2.5, "wedge": 3.5, "head_shoulders": 4.0, "cup_handle": 5.0, "tops_bottoms": 2.5, "triple_tops_bottoms": 3.0}, "stop_loss": {"atr_buffer": 0.5, "fallback_normal": 1.5, "fallback_wide": 2.0}}
@@ -42,6 +42,26 @@ class PatternAnalysisResult(TypedDict):
     head_shoulders_analysis: PatternDetailResult; advanced_pattern_metrics: AdvancedPatternMetrics
 
 class PatternAnalyzer:
+    # ==============================================================================
+    # PERFECT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
+    # ==============================================================================
+    EXPECTED_SCHEMA = [
+        'trend_direction', 'bos', 'choch', 'liquidity_sweep', 'market_regime', 
+        'efficiency_ratio', 'breakout_strength', 'volume_ratio', 'volume_confirmation', 
+        'support_strength', 'resistance_strength', 'pattern_confidence', 'trend_strength',
+        'swing_high', 'swing_low', 'neckline', 'triangle_upper', 'triangle_lower', 
+        'channel_upper', 'channel_lower', 'rectangle_upper', 'rectangle_lower', 
+        'triangle_detected', 'triangle_type', 'apex_distance', 'compression_pct', 
+        'breakout_pressure', 'channel_detected', 'channel_type', 'channel_width', 
+        'rectangle_detected', 'rectangle_width', 'flag_detected', 'pennant_detected', 
+        'flag_quality', 'pole_length', 'retracement_depth', 'volume_decay',
+        'wedge_detected', 'wedge_type', 'cup_detected', 'handle_detected', 
+        'rounding_top_detected', 'rounding_bottom_detected', 'hs_detected', 
+        'ihs_detected', 'hs_neckline_slope', 'hs_breakout_confirmed', 
+        'double_top_detected', 'double_bottom_detected', 'triple_top_detected', 
+        'triple_bottom_detected'
+    ]
+
     CRITICAL_FEATURES = ['close', 'atr', 'volume']
     L1_FEATURES = [
         'trend_direction', 'bos', 'choch', 'liquidity_sweep', 'market_regime', 'efficiency_ratio', 'breakout_strength', 

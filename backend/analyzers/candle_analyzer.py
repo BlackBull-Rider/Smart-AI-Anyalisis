@@ -78,14 +78,17 @@ class AdvancedCandleMetrics(TypedDict):
 class CandleAnalysisResult(TypedDict):
     candle_psychology: CandlePsychologyResult; bull_bear_analysis: BullBearResult; reversal_detection: ReversalResult; continuation_detection: ContinuationResult; gap_analysis: GapAnalysisResult; multi_timeframe: MTFResult; advanced_metrics: AdvancedCandleMetrics
 
-# ==============================================================================
-# MAIN CANDLE ANALYZER ORCHESTRATOR
-# ==============================================================================
+ # ============================================================================>
+    # PERFECT CONTRACT: শুধু DataFrame-এর কলামগুলোর নাম থাকবে
+    # OHLCV (open, high, low, close, volume) বাই-ডিফল্ট MO ট্র্যাক করে, তাই ওগুলো দিইন>
+    # ============================================================================>
+
 class CandleAnalyzer:
     EXPECTED_SCHEMA = [
-        "candle_psychology.status", "bull_bear_analysis.dominance",
-        "reversal_detection.direction", "continuation_detection.quality",
-        "gap_analysis.gap_type", "multi_timeframe.htf_dominant_bias"
+        "atr", "clv", "bos", "choch", "trend_direction",
+        "efficiency_ratio", "normalized_volatility", "liquidity_sweep", 
+        "bull_sequence", "bear_sequence", "gap_up", "gap_down", 
+        "volume_ratio", "body_pct", "upper_wick", "lower_wick"
     ]
     
     CRITICAL_FEATURES = ["close", "open", "high", "low", "atr", "clv", "bos", "choch", "trend_direction"]

@@ -92,6 +92,11 @@ class VolatilityAnalyzer:
     Strictly Layer-2 compliant (Zero indicator calculation).
     """
 
+    # ==========================================================
+    # EXPLICIT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
+    # ==========================================================
+    EXPECTED_SCHEMA = ['atr_14', 'bbw_20_2.0', 'hv_21', 'sqz_20', 'ei_14', 'chop_14']
+
     def __init__(self):
         self.req_cols = [
             'open', 'high', 'low', 'close', 'volume', 'atr_14'
