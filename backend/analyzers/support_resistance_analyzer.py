@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import logging
 import numpy as np
 import pandas as pd
@@ -561,7 +560,6 @@ __all__ = [
     "SummaryResult",
     "EvidenceItem"
 ]
-=======
 import logging
 import numpy as np
 import pandas as pd
@@ -1124,4 +1122,3 @@ __all__ = [
     "SummaryResult",
     "EvidenceItem"
 ]
->>>>>>> 73fad42 (Improve analyzers and pipeline logic)

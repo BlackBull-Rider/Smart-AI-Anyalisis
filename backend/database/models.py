@@ -1,0 +1,1144 @@
+"""
+GREEN BULL RIDER V6 - Institutional-grade AI Stock Analysis Platform
+Module: backend/database/models.py
+Description: Enterprise strongly-typed database models layer.
+             Implements ContextVars, Thread-local sessions, Event Bus, Async support,
+             Lazy Object Proxies, Field Aliasing, Key Rotation Crypto, Priority-based 
+             validation, Schema Hash generation, SQL Builders (Bulk/Upsert), and 
+             Immutable/Computed cache mixins. 
+             Production Locked. Compile & Runtime Safe. Institutional Grade.
+"""
+
+import re
+import csv
+import json
+import uuid
+import copy
+import struct
+import base64
+import hashlib
+import weakref
+import asyncio
+import threading
+import unicodedata
+import time
+import dataclasses
+from enum import Enum
+from pathlib import Path
+from collections import OrderedDict
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from dataclasses import dataclass, field as dc_field, fields, is_dataclass, MISSING
+from contextvars import ContextVar
+from typing import (
+    Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, 
+    Union, Final, Literal, get_type_hints, get_origin, get_args, Set, Iterable
+)
+
+# Internal Platform Integrations
+from backend.config.settings import settings
+from backend.core.logger import AppLogger
+from backend.core.trace import TraceEngine, SpanKind, trace_span
+from backend.core.metrics import metrics_engine
+from backend.core.exceptions import GreenBullError, DatabaseError
+from backend.core.audit import AuditEngine, AuditAction, AuditSeverity
+
+_logger = AppLogger("ModelsEngine")
+
+T = TypeVar('T', bound='BaseModel')
+
+
+# =========================================================================
+# THREAD LOCAL CONTEXT & EVENT BUS
+# =========================================================================
+
+request_context: ContextVar[Optional[Dict[str, Any]]] = ContextVar("request_context", default=None)
+
+class ModelEventBus:
+    """Synchronous & Asynchronous Event Bus for Model Lifecycle hooks."""
+    _subscribers: Dict[str, List[Callable]] = {}
+
+    @classmethod
+    def subscribe(cls, event: str, callback: Callable) -> None:
+        cls._subscribers.setdefault(event, []).append(callback)
+
+    @classmethod
+    def publish(cls, event: str, model: 'BaseModel', **kwargs) -> None:
+        for cb in cls._subscribers.get(event, []):
+            try: 
+                cb(model, **kwargs)
+            except Exception as e: 
+                _logger.error(f"EventBus sync error on {event}: {e}", exc_info=True)
+
+    @classmethod
+    async def publish_async(cls, event: str, model: 'BaseModel', **kwargs) -> None:
+        aws = []
+        for cb in cls._subscribers.get(event, []):
+            if asyncio.iscoroutinefunction(cb): 
+                aws.append(cb(model, **kwargs))
+            else:
+                try: 
+                    cb(model, **kwargs)
+                except Exception as e: 
+                    _logger.error(f"EventBus async-wrapper error on {event}: {e}", exc_info=True)
+        if aws: 
+            results = await asyncio.gather(*aws, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    _logger.error(f"EventBus async execution error on {event}: {res}")
+
+
+# =========================================================================
+# EXCEPTIONS
+# =========================================================================
+
+class ValidationError(GreenBullError): error_code: str = "GBR-MOD-001"
+class SerializationError(GreenBullError): error_code: str = "GBR-MOD-002"
+class OptimisticLockError(DatabaseError): error_code: str = "GBR-MOD-003"
+class ImmutableModificationError(DatabaseError): error_code: str = "GBR-MOD-004"
+class SecurityError(GreenBullError): error_code: str = "GBR-MOD-005"
+
+
+# =========================================================================
+# ENUMS
+# =========================================================================
+
+class Dialect(str, Enum): SQLITE = "SQLITE"; POSTGRES = "POSTGRES"
+class Exchange(str, Enum): NSE = "NSE"; BSE = "BSE"; MCX = "MCX"; NYSE = "NYSE"; NASDAQ = "NASDAQ"
+class SignalType(str, Enum): BUY = "BUY"; SELL = "SELL"; STRONG_BUY = "STRONG_BUY"; STRONG_SELL = "STRONG_SELL"; EXIT = "EXIT"
+class SignalStatus(str, Enum): ACTIVE = "ACTIVE"; TRIGGERED = "TRIGGERED"; EXPIRED = "EXPIRED"; STOPPED_OUT = "STOPPED_OUT"; TARGET_HIT = "TARGET_HIT"
+class Sentiment(str, Enum): BULLISH = "BULLISH"; BEARISH = "BEARISH"; NEUTRAL = "NEUTRAL"; VOLATILE = "VOLATILE"
+class IPOStatus(str, Enum): UPCOMING = "UPCOMING"; OPEN = "OPEN"; CLOSED = "CLOSED"; LISTED = "LISTED"; WITHDRAWN = "WITHDRAWN"
+class MigrationStatus(str, Enum): PENDING = "PENDING"; RUNNING = "RUNNING"; SUCCESS = "SUCCESS"; FAILED = "FAILED"; ROLLED_BACK = "ROLLED_BACK"
+class TaskStatus(str, Enum): QUEUED = "QUEUED"; RUNNING = "RUNNING"; COMPLETED = "COMPLETED"; FAILED = "FAILED"; CANCELLED = "CANCELLED"
+class HealthStatus(str, Enum): HEALTHY = "HEALTHY"; DEGRADED = "DEGRADED"; UNHEALTHY = "UNHEALTHY"; OFFLINE = "OFFLINE"
+class MarketCapCategory(str, Enum): LARGE = "LARGE"; MID = "MID"; SMALL = "SMALL"; MICRO = "MICRO"
+class OptionType(str, Enum): CE = "CE"; PE = "PE"
+class TransactionType(str, Enum): BUY = "BUY"; SELL = "SELL"; DIVIDEND = "DIVIDEND"; DEPOSIT = "DEPOSIT"; WITHDRAWAL = "WITHDRAWAL"
+class Theme(str, Enum): DARK = "DARK"; LIGHT = "LIGHT"; SYSTEM = "SYSTEM"
+class RiskTolerance(str, Enum): CONSERVATIVE = "CONSERVATIVE"; MODERATE = "MODERATE"; AGGRESSIVE = "AGGRESSIVE"
+class DecisionType(str, Enum): HEURISTIC = "HEURISTIC"; ALGORITHMIC = "ALGORITHMIC"; MACHINE_LEARNING = "MACHINE_LEARNING"; ENSEMBLE = "ENSEMBLE"
+class MarketRegime(str, Enum): BULL_VOLATILE = "BULL_VOLATILE"; BULL_QUIET = "BULL_QUIET"; BEAR_VOLATILE = "BEAR_VOLATILE"; BEAR_QUIET = "BEAR_QUIET"; SIDEWAYS_CHOP = "SIDEWAYS_CHOP"
+class DriftType(str, Enum): DATA_DRIFT = "DATA_DRIFT"; CONCEPT_DRIFT = "CONCEPT_DRIFT"; ALGORITHM_DRIFT = "ALGORITHM_DRIFT"
+
+
+# =========================================================================
+# SECURITY & CRYPTO PROVIDER (WITH KEY ROTATION)
+# =========================================================================
+
+class CryptoProvider:
+    _engines = []
+    _lock = threading.Lock()
+
+    @classmethod
+    def _init_engines(cls) -> None:
+        if not cls._engines:
+            with cls._lock:
+                if not cls._engines:
+                    try:
+                        from cryptography.fernet import Fernet
+                        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+                        from cryptography.hazmat.primitives import hashes
+                        
+                        keys = getattr(settings.security, "field_encryption_keys", ["gbr_v6_primary_key_v1"])
+                        salt = getattr(settings.security, "crypto_salt", b"gbr_v6_enterprise_production_salt_9999")
+                        if isinstance(salt, str): salt = salt.encode('utf-8')
+
+                        for k in keys:
+                            kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100000)
+                            b64_key = base64.urlsafe_b64encode(kdf.derive(k.encode('utf-8')))
+                            cls._engines.append(Fernet(b64_key))
+                        
+                        if not cls._engines: raise SecurityError("No valid encryption keys provided.")
+                    except ImportError as e:
+                        _logger.critical("cryptography package missing. Encryption disabled.")
+                        raise SecurityError("Cryptography library required for Enterprise Encryption.") from e
+
+    @classmethod
+    def encrypt(cls, data: str) -> str:
+        cls._init_engines()
+        return cls._engines[0].encrypt(data.encode('utf-8')).decode('utf-8')
+
+    @classmethod
+    def decrypt(cls, data: str) -> str:
+        cls._init_engines()
+        for engine in cls._engines:
+            try: return engine.decrypt(data.encode('utf-8')).decode('utf-8')
+            except Exception: continue
+        raise SecurityError("Failed to decrypt field with provided key rotation list.")
+
+
+# =========================================================================
+# CORE HELPERS
+# =========================================================================
+
+class TimestampHelper:
+    @staticmethod
+    def now_utc() -> datetime: return datetime.now(timezone.utc)
+    @staticmethod
+    def to_iso(dt: Optional[datetime]) -> Optional[str]: return dt.isoformat() if dt else None
+    @staticmethod
+    def from_iso(iso_str: Optional[Union[str, datetime]]) -> Optional[datetime]:
+        if not iso_str: return None
+        if isinstance(iso_str, datetime): return iso_str
+        try: return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        except ValueError as e: raise SerializationError(f"Invalid format: {iso_str}") from e
+
+class PrimaryKeyGenerator:
+    @staticmethod
+    def uuid4_hex() -> str: return uuid.uuid4().hex
+
+class UUIDStrategy:
+    @staticmethod
+    def generate() -> str: return str(uuid.uuid4())
+
+class DecimalPolicy:
+    PRECISION: int = 18
+    SCALE: int = 6
+    ROUNDING = ROUND_HALF_UP
+
+    @classmethod
+    def format(cls, value: Union[Decimal, float, str, int, type(None)]) -> Optional[Decimal]:
+        if value is None: return None
+        try: 
+            d = Decimal(str(value))
+            q = Decimal(10) ** -cls.SCALE
+            res = d.quantize(q, rounding=cls.ROUNDING)
+            if len(res.as_tuple().digits) > cls.PRECISION:
+                raise ValidationError(f"Decimal precision {cls.PRECISION} exceeded for value {value}")
+            return res
+        except (InvalidOperation, ValueError) as e: 
+            raise ValidationError(f"Cannot format '{value}'") from e
+
+
+# =========================================================================
+# VALIDATOR REGISTRY (PRIORITY & STOP_ON_ERROR)
+# =========================================================================
+
+class ValidatorRegistry:
+    _validators: Dict[str, Callable] = {}
+
+    @classmethod
+    def register(cls, name: str) -> Callable:
+        def wrapper(func: Callable):
+            cls._validators[name] = func
+            return func
+        return wrapper
+
+    @classmethod
+    def execute(cls, name: str, value: Any, **kwargs) -> Any:
+        if name in cls._validators: return cls._validators[name](value, **kwargs)
+        raise ValidationError(f"Validator {name} not found.")
+
+@ValidatorRegistry.register("length")
+def validate_length(value: str, min_len: int = 0, max_len: int = 255) -> str:
+    if not isinstance(value, str): raise ValidationError(f"Requires string")
+    if not (min_len <= len(value) <= max_len): raise ValidationError(f"Length {len(value)} outside bounds")
+    return value
+
+@ValidatorRegistry.register("regex")
+def validate_regex(value: str, pattern: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(pattern, value): raise ValidationError(f"Failed regex '{pattern}'")
+    return value
+
+@ValidatorRegistry.register("sqli_safe")
+def validate_sqli_safe(value: str) -> str:
+    if not isinstance(value, str): return value
+    unsafe = [
+        r"(?i)(?:DROP|ALTER|TRUNCATE)\s+(?:\/\*.*?\*\/\s+)?(?:TABLE|DATABASE)", 
+        r"--", r";\s*$", r"(?i)UNION\s+SELECT", r"(?i)OR\s+1\s*=\s*1", 
+        r"(?i)SLEEP\(", r"(?i)BENCHMARK\("
+    ]
+    for p in unsafe:
+        if re.search(p, value): raise ValidationError("SQL injection signature detected.")
+    return value
+
+@ValidatorRegistry.register("unicode_normalize")
+def validate_unicode(value: str) -> str:
+    if not isinstance(value, str): return value
+    return unicodedata.normalize('NFKC', value)
+
+@ValidatorRegistry.register("timezone_aware")
+def validate_timezone(value: datetime) -> datetime:
+    if not isinstance(value, datetime): raise ValidationError("Requires datetime")
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+# =========================================================================
+# LAZY OBJECT PROXY
+# =========================================================================
+
+class LazyProxy:
+    """Enterprise deferred loader for lazy relationship evaluation."""
+    def __init__(self, loader_func: Callable):
+        self._loader = loader_func
+        self._obj = None
+        self._loaded = False
+
+    def _load(self) -> Any:
+        if not self._loaded:
+            self._obj = self._loader()
+            self._loaded = True
+        return self._obj
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._load(), item)
+
+    def __call__(self) -> Any:
+        return self._load()
+
+    def __repr__(self) -> str:
+        return repr(self._load())
+
+
+# =========================================================================
+# REFLECTION & METADATA
+# =========================================================================
+
+@dataclass
+class ColumnMetadata:
+    name: str; primary_key: bool; foreign_key: Optional[str]; nullable: bool
+    unique: bool; index: bool; is_json: bool; is_encrypted: bool
+    is_computed: bool; alias: Optional[str]
+
+@dataclass
+class RelationshipMetadata:
+    target_model: str; back_populates: Optional[str]; lazy: Literal['select', 'joined', 'selectin']
+    uselist: bool; cascade: str; delete_rule: str; join_condition: Optional[str]
+
+@dataclass
+class TableMetadata:
+    name: str
+    columns: Dict[str, ColumnMetadata] = dc_field(default_factory=dict)
+    relationships: Dict[str, RelationshipMetadata] = dc_field(default_factory=dict)
+    composite_indexes: List[Tuple[str, ...]] = dc_field(default_factory=list)
+    composite_uniques: List[Tuple[str, ...]] = dc_field(default_factory=list)
+    composite_pks: List[str] = dc_field(default_factory=list)
+
+class MetaDataRegistry:
+    tables: Dict[str, TableMetadata] = {}
+
+    @classmethod
+    def register_table(cls, table_name: str, meta: TableMetadata) -> None:
+        cls.tables[table_name] = meta
+
+    @classmethod
+    def reflect(cls):
+        """Backward-compatible reflection API."""
+        return dict(cls.tables)
+
+    @classmethod
+    def generate_schema_hash(cls) -> str:
+        payload = json.dumps({k: dataclasses.asdict(v) for k, v in cls.tables.items()}, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+class ModelRegistry:
+    _registry: Dict[str, Type['BaseModel']] = {}
+    
+    @classmethod
+    def register(cls, model_class: Type['BaseModel']) -> None:
+        cls._registry[model_class.table_name()] = model_class
+
+    @classmethod
+    def get(cls, table_name: str) -> Type['BaseModel']:
+        if table_name not in cls._registry: raise DatabaseError(f"Model {table_name} not found.")
+        return cls._registry[table_name]
+
+
+# =========================================================================
+# DESCRIPTORS
+# =========================================================================
+
+def Field(
+    primary_key: bool = False, foreign_key: Optional[str] = None, unique: bool = False,
+    index: bool = False, nullable: bool = False, default_factory: Optional[Callable] = None,
+    default: Any = MISSING, validators: Optional[List[Dict[str, Any]]] = None,
+    is_json: bool = False, is_encrypted: bool = False, alias: Optional[str] = None
+) -> Any:
+    meta = {
+        "primary_key": primary_key, "foreign_key": foreign_key, "unique": unique,
+        "index": index, "nullable": nullable, "validators": validators or [],
+        "is_json": is_json, "is_encrypted": is_encrypted, "is_computed": False, "alias": alias
+    }
+    if default_factory is not None: return dc_field(default_factory=default_factory, metadata=meta)
+    elif default is not MISSING: return dc_field(default=default, metadata=meta)
+    return dc_field(metadata=meta)
+
+def Relationship(
+    target_model: str, back_populates: Optional[str] = None, lazy: Literal['select', 'joined', 'selectin'] = 'select',
+    uselist: bool = True, cascade: str = "save-update, merge", delete_rule: str = "SET NULL", join_condition: Optional[str] = None
+) -> Any:
+    meta = {"is_relationship": True, "target_model": target_model, "back_populates": back_populates, "lazy": lazy, "uselist": uselist, "cascade": cascade, "delete_rule": delete_rule, "join_condition": join_condition}
+    if uselist: return dc_field(default_factory=list, metadata=meta, repr=False, hash=False, compare=False)
+    return dc_field(default=None, metadata=meta, repr=False, hash=False, compare=False)
+
+def Computed(cache: bool = False):
+    """
+    Decorator factory for computed model properties.
+
+    Usage:
+        @Computed()
+        def value(self): ...
+
+        @Computed(cache=True)
+        def value(self): ...
+    """
+    from functools import wraps
+
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            return func(self, *args, **kwargs)
+
+        wrapper._is_computed = True
+        wrapper._cache = cache
+        return property(wrapper)
+
+    return decorator
+
+
+class PaginationModel:
+    page: int = 1
+    page_size: int = 100
+    total_records: int = 0
+    def offset(self) -> int: return (self.page - 1) * self.page_size
+
+@dataclass(kw_only=True)
+class SortModel:
+    field: str
+    direction: Literal['ASC', 'DESC'] = 'ASC'
+
+@dataclass(kw_only=True)
+class FilterModel:
+    field: str
+    operator: Literal['=', '!=', '>', '<', '>=', '<=', 'IN', 'LIKE', 'IS NULL', 'IS NOT NULL']
+    value: Any
+
+@dataclass(kw_only=True)
+class QueryModel:
+    filters: List[FilterModel] = dc_field(default_factory=list)
+    sorts: List[SortModel] = dc_field(default_factory=list)
+    pagination: Optional[PaginationModel] = None
+
+
+# =========================================================================
+# SERIALIZERS & COMPARERS
+# =========================================================================
+
+class ModelSerializer:
+    @classmethod
+    def serialize_value(cls, value: Any, field_meta: Dict[str, Any] = None, _visited: Optional[Set[int]] = None) -> Any:
+        if field_meta is None: field_meta = {}
+        if _visited is None: _visited = set()
+        
+        if isinstance(value, BaseModel):
+            if id(value) in _visited: return {"__circular__": getattr(value, value.primary_key_field(), id(value))}
+            _visited.add(id(value))
+            try: return value.to_dict(_visited=_visited)
+            finally: _visited.remove(id(value))
+            
+        if isinstance(value, Enum): return value.name
+        if isinstance(value, datetime): return TimestampHelper.to_iso(value)
+        if isinstance(value, Decimal): return str(value)
+        if isinstance(value, uuid.UUID): return str(value)
+        if isinstance(value, Path): return str(value)
+        if isinstance(value, LazyProxy): return cls.serialize_value(value(), field_meta, _visited)
+        
+        if isinstance(value, (list, tuple, set, frozenset)): return [cls.serialize_value(v, None, _visited) for v in value]
+        if isinstance(value, dict): return {k: cls.serialize_value(v, None, _visited) for k, v in value.items()}
+        return value
+
+    @classmethod
+    def deserialize_value(cls, value: Any, expected_type: Any, field_meta: Dict[str, Any]) -> Any:
+        if value is None: return None
+        if field_meta.get("is_encrypted") and isinstance(value, str): value = CryptoProvider.decrypt(value)
+            
+        origin = get_origin(expected_type) or expected_type
+        args = get_args(expected_type)
+
+        if origin is Union:
+            non_none = [a for a in args if a is not type(None)]
+            if non_none:
+                for arg_type in non_none:
+                    try: return cls.deserialize_value(value, arg_type, field_meta)
+                    except Exception: continue
+                return value
+
+        if isinstance(origin, type) and issubclass(origin, BaseModel):
+            if isinstance(value, dict) and "__circular__" not in value: return origin.from_dict(value)
+            return value
+
+        if origin is list and args:
+            if isinstance(value, list): return [cls.deserialize_value(v, args[0], field_meta) for v in value]
+
+        if isinstance(origin, type) and issubclass(origin, Enum): return origin[value] if value in origin.__members__ else origin(value)
+        if origin is datetime: return ValidatorRegistry.execute("timezone_aware", TimestampHelper.from_iso(value))
+        if origin is Decimal: return DecimalPolicy.format(value)
+        if origin is uuid.UUID: return uuid.UUID(str(value))
+        if origin is bool: return value.lower() in ('true', '1', 'yes') if isinstance(value, str) else bool(value)
+        return value
+
+    @classmethod
+    def to_sql(cls, value: Any, field_meta: Dict[str, Any], dialect: Dialect = Dialect.SQLITE) -> Any:
+        if value is None: return None
+        raw_val = value
+        if isinstance(value, Enum): raw_val = value.name
+        elif isinstance(value, datetime): raw_val = value.isoformat()
+        elif isinstance(value, Decimal): raw_val = str(value)
+        elif isinstance(value, uuid.UUID): raw_val = str(value)
+        elif isinstance(value, BaseModel): raw_val = json.dumps(value.to_dict(), default=str)
+        elif isinstance(value, (dict, list, set, tuple)) or field_meta.get("is_json"): raw_val = json.dumps(value, default=str)
+        elif isinstance(value, bool): raw_val = 1 if value else 0
+        
+        if field_meta.get("is_encrypted") and isinstance(raw_val, str): raw_val = CryptoProvider.encrypt(raw_val)
+        return raw_val
+
+class SerializerRegistry:
+    to_python = ModelSerializer.deserialize_value
+    to_sql = ModelSerializer.to_sql
+
+class ModelComparer:
+    @staticmethod
+    def calculate_checksum(data: Dict[str, Any]) -> str:
+        serialized = json.dumps(data, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+class ModelValidator:
+    @staticmethod
+    def validate_instance(instance: 'BaseModel', _visited: Optional[Set[int]] = None) -> None:
+        if _visited is None: _visited = set()
+        if id(instance) in _visited: return
+        _visited.add(id(instance))
+
+        hints = get_type_hints(type(instance), globalns=globals())
+        for f in fields(instance):
+            if f.name.startswith('_'): continue
+            val = getattr(instance, f.name)
+            
+            if isinstance(val, BaseModel): val.validate(_visited=_visited)
+            elif isinstance(val, list):
+                for item in val:
+                    if isinstance(item, BaseModel): item.validate(_visited=_visited)
+
+            if f.metadata.get("is_relationship"): continue
+            
+            is_opt = get_origin(hints.get(f.name)) is Union and type(None) in get_args(hints.get(f.name))
+            if val is None:
+                if not is_opt and not f.metadata.get("nullable", True): raise ValidationError(f"Field '{f.name}' cannot be NULL.")
+                continue
+
+            for v_rule in sorted(f.metadata.get("validators", []), key=lambda x: x.get("priority", 99)):
+                try:
+                    kwargs = {k:v for k,v in v_rule.items() if k not in ("name", "priority", "stop_on_error")}
+                    val = ValidatorRegistry.execute(v_rule["name"], val, **kwargs)
+                    setattr(instance, f.name, val)
+                except ValidationError as e:
+                    if v_rule.get("stop_on_error", True): raise e
+
+
+# =========================================================================
+# SQL BUILDERS & ADAPTERS
+# =========================================================================
+
+class SQLBuilder:
+    @staticmethod
+    def bulk_insert_sql(model_cls: Type['BaseModel'], dialect: Dialect = Dialect.SQLITE) -> str:
+        cols = [f.metadata.get("alias") or f.name for f in fields(model_cls) if not f.name.startswith('_') and not f.metadata.get("is_computed") and not f.metadata.get("is_relationship")]
+        placeholders = ",".join(["?"] * len(cols)) if dialect == Dialect.SQLITE else ",".join([f"%s"] * len(cols))
+        return f"INSERT INTO {model_cls.table_name()} ({','.join(cols)}) VALUES ({placeholders})"
+
+    @staticmethod
+    def upsert_sql(model_cls: Type['BaseModel'], conflict_keys: List[str], dialect: Dialect = Dialect.SQLITE) -> str:
+        base = SQLBuilder.bulk_insert_sql(model_cls, dialect)
+        cols = [f.metadata.get("alias") or f.name for f in fields(model_cls) if not f.name.startswith('_') and not f.metadata.get("is_computed") and not f.metadata.get("is_relationship") and f.name not in conflict_keys]
+        
+        if dialect == Dialect.SQLITE:
+            updates = ",".join([f"{c}=excluded.{c}" for c in cols])
+        else:
+            updates = ",".join([f"{c}=EXCLUDED.{c}" for c in cols])
+            
+        return f"{base} ON CONFLICT ({','.join(conflict_keys)}) DO UPDATE SET {updates}"
+
+class BinaryStructAdapter:
+    @staticmethod
+    def pack(model: 'BaseModel') -> bytes:
+        payload = json.dumps(model.to_dict(), default=str).encode('utf-8')
+        return struct.pack(f">I{len(payload)}s", len(payload), payload)
+    @staticmethod
+    def unpack(payload: bytes, model_cls: Type['BaseModel']) -> 'BaseModel':
+        length = struct.unpack(">I", payload[:4])[0]
+        return model_cls.from_dict(json.loads(payload[4:4+length].decode('utf-8')))
+
+
+# =========================================================================
+# ENGINES & POOLS
+# =========================================================================
+
+class BulkModelSerializer:
+    @staticmethod
+    def to_json_batch(models: Iterable['BaseModel']) -> str:
+        return json.dumps([m.to_dict() for m in models], default=str)
+
+    @staticmethod
+    def to_csv_batch(models: Iterable['BaseModel'], filename: Union[str, Path]) -> None:
+        models_list = list(models)
+        if not models_list: return
+        keys = [f.metadata.get("alias") or f.name for f in fields(models_list[0]) if not f.metadata.get("is_relationship") and not f.name.startswith('_')]
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=keys, extrasaction='ignore')
+            writer.writeheader()
+            for m in models_list: writer.writerow(m.to_dict())
+
+class BulkValidationEngine:
+    @staticmethod
+    def validate_all(models: Iterable['BaseModel']) -> Tuple[bool, List[str]]:
+        errors = []
+        for i, m in enumerate(models):
+            try: m.validate()
+            except ValidationError as e: errors.append(f"Row {i} [{m.primary_key()}]: {e}")
+        return len(errors) == 0, errors
+
+class ModelDiffEngine:
+    @staticmethod
+    def compare(model_a: 'BaseModel', model_b: 'BaseModel') -> Dict[str, Tuple[Any, Any]]:
+        if type(model_a) is not type(model_b): raise ValidationError("Type mismatch in Diff Engine.")
+        diff = {}
+        for f in fields(model_a):
+            if f.name.startswith('_') or f.metadata.get("is_relationship"): continue
+            val_a = getattr(model_a, f.name)
+            val_b = getattr(model_b, f.name)
+            if val_a != val_b:
+                diff[f.name] = (val_a, val_b)
+        return diff
+
+class LRUModelCache:
+    def __init__(self, max_size: int = 1000, ttl_sec: float = 300.0):
+        self.cache: OrderedDict[str, Tuple[float, 'BaseModel']] = OrderedDict()
+        self.weak_refs = weakref.WeakValueDictionary()
+        self.max_size = max_size; self.ttl_sec = ttl_sec; self.lock = threading.Lock()
+
+    def get(self, key: str) -> Optional['BaseModel']:
+        with self.lock:
+            if key in self.cache:
+                timestamp, model = self.cache[key]
+                if (time.time() - timestamp) > self.ttl_sec:
+                    del self.cache[key]
+                    metrics_engine.increment("lru_cache_expire", namespace="models")
+                    return None
+                self.cache.move_to_end(key)
+                metrics_engine.increment("lru_cache_hit", namespace="models")
+                return model
+            metrics_engine.increment("lru_cache_miss", namespace="models")
+            return self.weak_refs.get(key)
+
+    def put(self, key: str, model: 'BaseModel') -> None:
+        with self.lock:
+            self.cache[key] = (time.time(), model)
+            self.weak_refs[key] = model
+            self.cache.move_to_end(key)
+            if len(self.cache) > self.max_size: self.cache.popitem(last=False)
+
+    def invalidate(self, key: str) -> None:
+        with self.lock: self.cache.pop(key, None)
+
+class MemoryPool:
+    def __init__(self, model_cls: Type['BaseModel'], pool_size: int = 500):
+        self.model_cls = model_cls; self.pool: List['BaseModel'] = []; self.pool_size = pool_size; self.lock = threading.Lock()
+
+    def acquire(self, **kwargs) -> 'BaseModel':
+        with self.lock:
+            if self.pool:
+                obj = self.pool.pop()
+                obj.update(**kwargs)
+                return obj
+        return self.model_cls(**kwargs)
+
+    def release(self, obj: 'BaseModel') -> None:
+        with self.lock:
+            if len(self.pool) < self.pool_size:
+                for f in fields(obj):
+                    if f.metadata.get("is_relationship"):
+                        setattr(obj, f.name, [] if f.metadata.get("uselist") else None)
+                    else:
+                        if callable(f.default_factory): setattr(obj, f.name, f.default_factory())
+                        elif f.default is not MISSING: setattr(obj, f.name, f.default)
+                        else: setattr(obj, f.name, None)
+                obj.reset_dirty_state()
+                obj._run_hooks('after_release')
+                self.pool.append(obj)
+
+
+# =========================================================================
+# PURE MIXINS (No slots, safe for Python 3.13 dataclass MRO)
+# =========================================================================
+
+class TimestampMixin:
+    def init_timestamps(self):
+        self.created_at = TimestampHelper.now_utc()
+        self.updated_at = TimestampHelper.now_utc()
+    def update_timestamp(self): self.updated_at = TimestampHelper.now_utc()
+
+class SoftDeleteMixin:
+    def init_soft_delete(self):
+        self.is_deleted = False
+        self.deleted_at = None
+    def soft_delete(self):
+        self.is_deleted = True
+        self.deleted_at = TimestampHelper.now_utc()
+
+class OptimisticLockMixin:
+    def init_lock(self): self.version_id = 1
+    def increment_version(self): self.version_id += 1
+
+class VersionedMixin:
+    def init_version(self): self.history_checksum = ""
+
+class ImmutableMixin:
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_initialized", False) and not name.startswith('_'):
+            if name not in ("updated_at", "version_id", "history_checksum", "is_deleted", "deleted_at"):
+                raise ImmutableModificationError(f"Cannot mutate {name} on immutable model.")
+        super().__setattr__(name, value)
+
+
+# =========================================================================
+# BASE MODEL (Abstract Ancestor)
+# =========================================================================
+
+@dataclass(kw_only=True)
+class BaseModel:
+    _original_state: Dict[str, Any] = dc_field(default_factory=dict, init=False, repr=False, compare=False, hash=False)
+    _computed_cache: Dict[str, Any] = dc_field(default_factory=dict, init=False, repr=False, compare=False, hash=False)
+    _initialized: bool = dc_field(default=False, init=False, repr=False, compare=False, hash=False)
+
+    @classmethod
+    def table_name(cls) -> str: raise NotImplementedError()
+
+    @classmethod
+    def primary_key_field(cls) -> str:
+        for f in fields(cls):
+            if f.metadata.get("primary_key"): return f.name
+        return "id"
+
+    def primary_key(self) -> Any: return getattr(self, self.primary_key_field())
+
+    def __post_init__(self) -> None:
+        if isinstance(self, TimestampMixin): self.init_timestamps()
+        if isinstance(self, SoftDeleteMixin): self.init_soft_delete()
+        if isinstance(self, OptimisticLockMixin): self.init_lock()
+        if isinstance(self, VersionedMixin): self.init_version()
+        self.reset_dirty_state()
+        self._initialized = True
+        self._run_hooks('after_init')
+
+    def reset_dirty_state(self) -> None:
+        self._original_state = {}
+        for f in fields(self):
+            if f.name.startswith('_') or f.metadata.get("is_relationship"): continue
+            val = getattr(self, f.name)
+            if isinstance(val, (dict, list, set)): self._original_state[f.name] = copy.copy(val)
+            else: self._original_state[f.name] = val
+
+    def get_dirty_fields(self) -> Dict[str, Any]:
+        return {f.name: getattr(self, f.name) for f in fields(self) if not f.name.startswith('_') and not f.metadata.get("is_relationship") and getattr(self, f.name) != self._original_state.get(f.name)}
+
+
+    def is_dirty(self) -> bool:
+        return bool(self.get_dirty_fields())
+
+    def to_dict(self, _visited: Optional[Set[int]] = None) -> Dict[str, Any]:
+        if _visited is None: _visited = set()
+        if id(self) in _visited: return {"__circular__": self.primary_key()}
+        _visited.add(id(self))
+
+        try:
+            result = {}
+            for f in fields(self):
+                if f.name.startswith('_'): continue
+                key = f.metadata.get("alias") or f.name
+                
+                if f.metadata.get("is_computed"):
+                    if f.metadata.get("cache") and f.name in self._computed_cache: val = self._computed_cache[f.name]
+                    else:
+                        compute_func = f.metadata.get("compute_func")
+                        val = compute_func(self) if compute_func else None
+                        if f.metadata.get("cache"): self._computed_cache[f.name] = val
+                else:
+                    val = getattr(self, f.name)
+                result[key] = ModelSerializer.serialize_value(val, f.metadata, _visited)
+            return result
+        finally:
+            _visited.remove(id(self))
+
+    @classmethod
+    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
+        hints = get_type_hints(cls, globalns=globals())
+        init_kwargs = {}
+        for f in fields(cls):
+            if f.name.startswith('_') or f.metadata.get("is_computed"): continue
+            key = f.metadata.get("alias") or f.name
+            if key in data:
+                init_kwargs[f.name] = ModelSerializer.deserialize_value(data[key], hints.get(f.name), f.metadata)
+        return cls(**init_kwargs)
+
+    def validate(self, _visited: Optional[Set[int]] = None) -> None:
+        self._run_hooks('before_validate')
+        ModelValidator.validate_instance(self, _visited)
+
+    async def async_validate(self) -> None:
+        await asyncio.to_thread(self.validate)
+
+    def update(self, **kwargs: Any) -> None:
+        hints = get_type_hints(self.__class__, globalns=globals())
+        for k, v in kwargs.items():
+            if hasattr(self, k) and not k.startswith('_'):
+                f_meta = next((f.metadata for f in fields(self) if f.name == k), {})
+                if not f_meta.get("is_computed") and not f_meta.get("is_relationship"):
+                    setattr(self, k, ModelSerializer.deserialize_value(v, hints.get(k), f_meta))
+        self._computed_cache.clear()
+
+    def as_sql_parameters(self, dialect: Dialect = Dialect.SQLITE) -> Tuple[Any, ...]:
+        return tuple(ModelSerializer.to_sql(getattr(self, f.name), f.metadata, dialect) for f in fields(self) if not f.name.startswith('_') and not f.metadata.get("is_computed") and not f.metadata.get("is_relationship"))
+
+
+    # ------------------------------------------------------------------
+    # Repository compatibility API
+    # ------------------------------------------------------------------
+
+    def insert_columns(self) -> Tuple[str, ...]:
+        return tuple(
+            f.name
+            for f in fields(self)
+            if not f.name.startswith("_")
+            and not f.metadata.get("is_computed")
+            and not f.metadata.get("is_relationship")
+        )
+
+    def insert_values(self, dialect: Dialect = Dialect.SQLITE) -> Tuple[Any, ...]:
+        return self.as_sql_parameters(dialect)
+
+    def update_columns(self) -> Tuple[str, ...]:
+        pk = self.primary_key_field()
+        return tuple(
+            f.name
+            for f in fields(self)
+            if not f.name.startswith("_")
+            and f.name != pk
+            and not f.metadata.get("is_computed")
+            and not f.metadata.get("is_relationship")
+        )
+
+    def update_values(self, dialect: Dialect = Dialect.SQLITE) -> Tuple[Any, ...]:
+        values = []
+        pk = self.primary_key_field()
+
+        for f in fields(self):
+            if (
+                f.name.startswith("_")
+                or f.name == pk
+                or f.metadata.get("is_computed")
+                or f.metadata.get("is_relationship")
+            ):
+                continue
+
+            values.append(
+                ModelSerializer.to_sql(
+                    getattr(self, f.name),
+                    f.metadata,
+                    dialect
+                )
+            )
+
+        values.append(
+            ModelSerializer.to_sql(
+                getattr(self, pk),
+                {},
+                dialect
+            )
+        )
+
+        return tuple(values)
+
+    def checksum(self) -> str:
+        return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+    def _run_hooks(self, hook_name: str) -> None:
+        if hasattr(self, hook_name) and callable(getattr(self, hook_name)): getattr(self, hook_name)()
+        ModelEventBus.publish(f"{self.table_name()}.{hook_name}", self)
+
+    def before_update(self) -> None:
+        if isinstance(self, TimestampMixin): self.update_timestamp()
+        if isinstance(self, OptimisticLockMixin): self.increment_version()
+        if isinstance(self, VersionedMixin): self.history_checksum = self.checksum()
+        
+    def after_update(self) -> None:
+        diff = {k: v for k, v in self.get_dirty_fields().items()}
+        AuditEngine.record_success(f"model.update.{self.table_name()}", AuditAction.UPDATE, f"Updated {self.primary_key()}", metadata={"diff": diff})
+
+# =========================================================================
+# APPLICATION MODELS (COMPLETE DOMAIN LAYER)
+# =========================================================================
+
+# --- INFRASTRUCTURE ---
+@dataclass(kw_only=True)
+class SchemaVersion(BaseModel, TimestampMixin, ImmutableMixin):
+    id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    version: int = Field(unique=True)
+    checksum: str = Field()
+    applied_at: datetime = Field(default_factory=TimestampHelper.now_utc)
+    execution_time_ms: Decimal = Field()
+    description: str = Field()
+    @classmethod
+    def table_name(cls) -> str: return "schema_version"
+
+@dataclass(kw_only=True)
+class Metadata(BaseModel, TimestampMixin):
+    key_id: str = Field(primary_key=True)
+    value_payload: str = Field()
+    @classmethod
+    def table_name(cls) -> str: return "metadata"
+
+@dataclass(kw_only=True)
+class Settings(BaseModel, TimestampMixin, OptimisticLockMixin):
+    setting_key: str = Field(primary_key=True)
+    setting_value: str = Field()
+    data_type: str = Field()
+    @classmethod
+    def table_name(cls) -> str: return "settings"
+
+@dataclass(kw_only=True)
+class MigrationHistory(BaseModel, TimestampMixin):
+    migration_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    version: int = Field()
+    status: MigrationStatus = Field()
+    started_at: datetime = Field(default_factory=TimestampHelper.now_utc)
+    finished_at: Optional[datetime] = Field(default=None)
+    duration_ms: Optional[Decimal] = Field(default=None)
+    checksum: str = Field()
+    @classmethod
+    def table_name(cls) -> str: return "migration_history"
+
+# --- SYNC & SYSTEM HELPER ---
+@dataclass(kw_only=True)
+class JobQueue(BaseModel, TimestampMixin):
+    job_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    task_name: str = Field(default="test_task")
+    status: TaskStatus = Field(default=TaskStatus.QUEUED)
+    run_at: datetime = Field(default_factory=TimestampHelper.now_utc)
+    @classmethod
+    def table_name(cls) -> str: return "job_queue"
+
+@dataclass(kw_only=True)
+class DataSource(BaseModel, TimestampMixin):
+    source_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    name: str = Field()
+    endpoint_url: str = Field()
+    api_key_ref: Optional[str] = Field(default=None, is_encrypted=True)
+    @classmethod
+    def table_name(cls) -> str: return "data_source"
+
+# --- MASTER & CALENDAR ---
+@dataclass(kw_only=True)
+class StockMaster(BaseModel, TimestampMixin):
+    __composite_indexes__ = [("sector", "industry"), ("exchange", "is_active")]
+    symbol: str = Field(primary_key=True)
+    company_name: str = Field()
+    exchange: Exchange = Field()
+    sector: Optional[str] = Field(default=None)
+    industry: Optional[str] = Field(default=None)
+    is_active: bool = Field(default=True)
+    market_data: List['MarketData'] = Relationship(target_model="MarketData", lazy="selectin", cascade="all, delete-orphan")
+    @classmethod
+    def table_name(cls) -> str: return "stock_master"
+
+@dataclass(kw_only=True)
+class MarketHoliday(BaseModel, TimestampMixin):
+    holiday_date: datetime = Field(primary_key=True)
+    exchange: Exchange = Field()
+    description: str = Field()
+    @classmethod
+    def table_name(cls) -> str: return "market_holiday"
+
+# --- CORE FINANCIAL ---
+@dataclass(kw_only=True)
+class MarketData(BaseModel, TimestampMixin):
+    __composite_uniques__ = [("symbol", "trade_date")]
+    market_data_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    trade_date: datetime = Field()
+    price_open: Decimal = Field()
+    price_high: Decimal = Field()
+    price_low: Decimal = Field()
+    price_close: Decimal = Field()
+    volume: int = Field()
+    @classmethod
+    def table_name(cls) -> str: return "market_data"
+
+@dataclass(kw_only=True)
+class TickData(BaseModel):
+    tick_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    timestamp: datetime = Field()
+    price: Decimal = Field()
+    volume: int = Field()
+    @classmethod
+    def table_name(cls) -> str: return "tick_data"
+
+@dataclass(kw_only=True)
+class FundamentalData(BaseModel, TimestampMixin):
+    fund_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    report_date: datetime = Field()
+    pe_ratio: Optional[Decimal] = Field(default=None)
+    eps: Optional[Decimal] = Field(default=None)
+    @classmethod
+    def table_name(cls) -> str: return "fundamental_data"
+
+@dataclass(kw_only=True)
+class SmartMoneyData(BaseModel, TimestampMixin):
+    smc_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    trade_date: datetime = Field()
+    fvg_bullish: bool = Field(default=False)
+    liquidity_sweep: bool = Field(default=False)
+    @classmethod
+    def table_name(cls) -> str: return "smart_money_data"
+
+# --- DEEP AI & HISTORY ---
+@dataclass(kw_only=True)
+class IndicatorHistory(BaseModel, TimestampMixin):
+    indicator_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    calc_date: datetime = Field()
+    indicators_payload: Dict[str, Any] = Field(is_json=True)
+    @classmethod
+    def table_name(cls) -> str: return "indicator_history"
+
+@dataclass(kw_only=True)
+class DecisionHistory(BaseModel, TimestampMixin):
+    decision_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    symbol: str = Field()
+    decision_date: datetime = Field()
+    action: SignalType = Field()
+    confidence: Decimal = Field()
+    @classmethod
+    def table_name(cls) -> str: return "decision_history"
+
+# --- PORTFOLIO & RISK ---
+@dataclass(kw_only=True)
+class Portfolio(BaseModel, TimestampMixin):
+    portfolio_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    user_id: str = Field()
+    name: str = Field()
+    cash_balance: Decimal = Field(default=Decimal('0.0'))
+    positions: List['PortfolioPositions'] = Relationship(target_model="PortfolioPositions", lazy="joined", cascade="all, delete-orphan")
+    @classmethod
+    def table_name(cls) -> str: return "portfolio"
+
+@dataclass(kw_only=True)
+class PortfolioPositions(BaseModel, TimestampMixin):
+    position_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    portfolio_id: str = Field(foreign_key="portfolio.portfolio_id")
+    symbol: str = Field(foreign_key="stock_master.symbol")
+    quantity: Decimal = Field(default=Decimal('0.0'))
+    average_price: Decimal = Field(default=Decimal('0.0'))
+    current_price: Decimal = Field(default=Decimal('0.0'))
+
+    @Computed(cache=True)
+    def profit_percentage(self) -> Decimal:
+        if self.average_price == 0: return Decimal('0.0')
+        return ((self.current_price - self.average_price) / self.average_price) * Decimal('100.0')
+
+    @classmethod
+    def table_name(cls) -> str: return "portfolio_positions"
+
+# --- TELEMETRY ---
+@dataclass(kw_only=True)
+class AuditLogs(BaseModel, ImmutableMixin):
+    log_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    actor: str = Field(default="system")
+    component: str = Field(default="core")
+    action: AuditAction = Field(default=AuditAction.READ)
+    result: Literal['SUCCESS', 'FAILURE', 'PENDING'] = Field(default='SUCCESS')
+    severity: str = Field(default="INFO")
+    message: str = Field(default="test message")
+    timestamp: datetime = Field(default_factory=TimestampHelper.now_utc)
+    @classmethod
+    def table_name(cls) -> str: return "audit_logs"
+
+@dataclass(kw_only=True)
+class SystemLogs(BaseModel, ImmutableMixin):
+    syslog_id: str = Field(primary_key=True, default_factory=PrimaryKeyGenerator.uuid4_hex)
+    level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field()
+    module: str = Field()
+    message: str = Field()
+    timestamp: datetime = Field(default_factory=TimestampHelper.now_utc)
+    @classmethod
+    def table_name(cls) -> str: return "system_logs"
+
+
+# =========================================================================
+# BOOTSTRAP MODEL REGISTRY & METADATA REFLECTION
+# =========================================================================
+
+for name, obj in list(locals().items()):
+    if isinstance(obj, type) and issubclass(obj, BaseModel) and obj is not BaseModel:
+        if hasattr(obj, 'table_name') and callable(obj.table_name):
+            try:
+                ModelRegistry.register(obj)
+                cols, rels = {}, {}
+                for f in fields(obj):
+                    if f.name.startswith('_'): continue
+                    if f.metadata.get("is_relationship"):
+                        rels[f.name] = RelationshipMetadata(
+                            target_model=f.metadata.get("target_model"),
+                            back_populates=f.metadata.get("back_populates"),
+                            lazy=f.metadata.get("lazy"),
+                            uselist=f.metadata.get("uselist"),
+                            cascade=f.metadata.get("cascade"),
+                            delete_rule=f.metadata.get("delete_rule"),
+                            join_condition=f.metadata.get("join_condition")
+                        )
+                    else:
+                        cols[f.name] = ColumnMetadata(
+                            name=f.name,
+                            primary_key=f.metadata.get("primary_key", False),
+                            foreign_key=f.metadata.get("foreign_key"),
+                            nullable=f.metadata.get("nullable", False),
+                            unique=f.metadata.get("unique", False),
+                            index=f.metadata.get("index", False),
+                            is_json=f.metadata.get("is_json", False),
+                            is_encrypted=f.metadata.get("is_encrypted", False),
+                            is_computed=f.metadata.get("is_computed", False),
+                            alias=f.metadata.get("alias")
+                        )
+                
+                idx = getattr(obj, "__composite_indexes__", [])
+                uni = getattr(obj, "__composite_uniques__", [])
+                pks = getattr(obj, "__composite_pks__", [c for c, m in cols.items() if m.primary_key])
+                
+                MetaDataRegistry.register_table(
+                    table_name=obj.table_name(),
+                    meta=TableMetadata(name=obj.table_name(), columns=cols, relationships=rels, composite_indexes=idx, composite_uniques=uni, composite_pks=pks)
+                )
+            except NotImplementedError:
+                pass
+
+
+__all__ = [
+    "ValidationError", "SerializationError", "OptimisticLockError", "ImmutableModificationError", "SecurityError",
+    "Dialect", "Exchange", "SignalType", "SignalStatus", "Sentiment", "IPOStatus", "MigrationStatus",
+    "TaskStatus", "HealthStatus", "MarketCapCategory", "OptionType", "TransactionType", "Theme",
+    "RiskTolerance", "DecisionType", "MarketRegime", "DriftType",
+    "DecimalPolicy", "UUIDStrategy", "CryptoProvider", "request_context", "ModelEventBus",
+    "ValidatorRegistry", "ModelRegistry", "MetaDataRegistry", "SQLBuilder",
+    "BulkModelSerializer", "BulkValidationEngine", "ModelDiffEngine", "BinaryStructAdapter",
+    "LazyProxy", "Field", "Relationship", "Computed", "TimestampHelper", "PrimaryKeyGenerator",
+    "ModelSerializer", "ModelValidator", "ModelComparer",
+    "BaseModel", "TimestampMixin", "SoftDeleteMixin", "OptimisticLockMixin", "VersionedMixin", "ImmutableMixin",
+    "SchemaVersion", "MigrationHistory", "Metadata", "Settings", "JobQueue", "DataSource",
+    "StockMaster", "MarketData", "TickData", "FundamentalData", "SmartMoneyData", 
+    "IndicatorHistory", "DecisionHistory", "Portfolio", "PortfolioPositions", "AuditLogs", "SystemLogs"
+]

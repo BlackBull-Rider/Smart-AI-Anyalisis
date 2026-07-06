@@ -1,0 +1,25 @@
+{
+    "timestamp": "2026-07-06T10:54:50.698163+00:00",
+    "score": 0.0,
+    "total_tests": 3,
+    "passed": 0,
+    "failed": 3,
+    "benchmarks": {},
+    "details": [
+        {
+            "name": "Models & Schema Deep Discovery",
+            "status": "FAIL",
+            "error": "RuntimeError: Model validation failures:\naudit_logs: Failed to generate data for strict field 'result' of type typing.Literal['SUCCESS', 'FAILURE', 'PENDING']: Unknown un-mockable type: typing.Literal\nsystem_logs: Failed to generate data for strict field 'level' of type typing.Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']: Unknown un-mockable type: typing.Literal"
+        },
+        {
+            "name": "Repository & UOW Concurrency Stress",
+            "status": "FAIL",
+            "error": "AttributeError: type object 'MetaDataRegistry' has no attribute 'reflect'"
+        },
+        {
+            "name": "Disaster Recovery & Rollback",
+            "status": "FAIL",
+            "error": "AttributeError: 'DatabaseConnection' object has no attribute 'get_db_path'"
+        }
+    ]
+}

@@ -1,0 +1,112 @@
+{
+    "timestamp": "2026-07-06T13:01:10.842294+00:00",
+    "score": 100.0,
+    "total_executed": 15,
+    "passed": 15,
+    "failed": 0,
+    "skipped": 1,
+    "benchmarks": {
+        "Bulk Insert (200 rows/s)": 3353.432407916912
+    },
+    "leaks": {
+        "memory_bytes_diff": 84871
+    },
+    "details": [
+        {
+            "name": "Model Discovery",
+            "status": "PASS",
+            "duration": 0.0,
+            "error": ""
+        },
+        {
+            "name": "Metadata Validation",
+            "status": "PASS",
+            "duration": 0.0,
+            "error": ""
+        },
+        {
+            "name": "Data Generation",
+            "status": "PASS",
+            "duration": 0.0008,
+            "error": ""
+        },
+        {
+            "name": "Repository CRUD",
+            "status": "PASS",
+            "duration": 0.0137,
+            "error": ""
+        },
+        {
+            "name": "Repository Bulk Ops",
+            "status": "PASS",
+            "duration": 0.0107,
+            "error": ""
+        },
+        {
+            "name": "Query Operations",
+            "status": "PASS",
+            "duration": 0.0037,
+            "error": ""
+        },
+        {
+            "name": "UnitOfWork State",
+            "status": "PASS",
+            "duration": 0.0023,
+            "error": ""
+        },
+        {
+            "name": "Nested Savepoints",
+            "status": "PASS",
+            "duration": 0.0033,
+            "error": ""
+        },
+        {
+            "name": "Identity Map",
+            "status": "PASS",
+            "duration": 0.004,
+            "error": ""
+        },
+        {
+            "name": "Thread Safety",
+            "status": "PASS",
+            "duration": 0.0773,
+            "error": ""
+        },
+        {
+            "name": "Async UOW",
+            "status": "SKIPPED",
+            "duration": 0.0001,
+            "error": "AsyncUnitOfWork not implemented"
+        },
+        {
+            "name": "Query Builder",
+            "status": "PASS",
+            "duration": 0.0013,
+            "error": ""
+        },
+        {
+            "name": "Backup Execution",
+            "status": "PASS",
+            "duration": 0.1575,
+            "error": ""
+        },
+        {
+            "name": "Restore Execution",
+            "status": "PASS",
+            "duration": 0.1184,
+            "error": ""
+        },
+        {
+            "name": "Memory Leak Profile",
+            "status": "PASS",
+            "duration": 0.0585,
+            "error": ""
+        },
+        {
+            "name": "Performance Benchmark",
+            "status": "PASS",
+            "duration": 0.1121,
+            "error": ""
+        }
+    ]
+}
