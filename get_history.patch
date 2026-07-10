@@ -1,0 +1,4 @@
+df = self._execute_with_resilience(
+    _fetch,
+    "get_history"
+)

@@ -111,7 +111,7 @@ class AuditSeverity(Enum):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReaderConfig:
     dialect: Dialect = Dialect.SQLITE
-    db_url: str = "sqlite:////tmp/gbr_master.db"
+    db_url: str = "sqlite:////tmp/universe.db"
     max_connections: int = 50
     prefetch_workers: int = 15
     pool_timeout_sec: float = 15.0
@@ -560,7 +560,7 @@ class MarketReader:
         "dashboard_cache", "watchlist", "scanner_results", "ipo_data",
         "sector_data", "industry_data", "indices", "options_chain", "fno_data",
         "bulk_deals", "block_deals", "corporate_actions", "alerts", "registry",
-        "trace_log", "validation_log", "sync_log", "system_log", "master_stock"
+        "trace_log", "validation_log", "sync_log", "system_log", "stock_master"
     }
 
     def __init__(self, config: ReaderConfig = ReaderConfig()):
@@ -833,19 +833,19 @@ class MarketReader:
     def get_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
         cached = self.cache.get(CacheNamespace.SYMBOL, symbol)
         if cached: return cached
-        res = self.read_latest_by_symbol("master_stock", symbol, "symbol")
+        res = self.read_latest_by_symbol("stock_master", symbol, "symbol")
         if res: self.cache.set(CacheNamespace.SYMBOL, symbol, res, 3600.0)
         return res
 
     def get_symbols(self) -> List[str]:
         cached = self.cache.get(CacheNamespace.SYMBOL, "all_symbols")
         if cached: return cached
-        res = [r['symbol'] for r in self._execute_with_retry("SELECT DISTINCT symbol FROM master_stock")]
+        res = [r['symbol'] for r in self._execute_with_retry("SELECT DISTINCT symbol FROM stock_master")]
         self.cache.set(CacheNamespace.SYMBOL, "all_symbols", res, 3600.0)
         return res
 
-    def read_symbols_batch(self, symbols: List[str]) -> List[Dict[str, Any]]: return self.read_latest_batch("master_stock", symbols, "symbol")
-    def get_active_symbols(self) -> List[str]: return [r['symbol'] for r in self.read_many("master_stock", CompoundFilter().add("is_active", "=", 1))]
+    def read_symbols_batch(self, symbols: List[str]) -> List[Dict[str, Any]]: return self.read_latest_batch("stock_master", symbols, "symbol")
+    def get_active_symbols(self) -> List[str]: return [r['symbol'] for r in self.read_many("stock_master", CompoundFilter().add("is_active", "=", 1))]
     def get_watchlist_symbols(self) -> List[str]: return [r['symbol'] for r in self.read_all("watchlist")]
     def get_portfolio_symbols(self) -> List[str]: return [r['symbol'] for r in self._execute_with_retry("SELECT DISTINCT symbol FROM portfolio_data")]
     def get_scanner_symbols(self) -> List[str]: return [r['symbol'] for r in self._execute_with_retry("SELECT DISTINCT symbol FROM scanner_results")]

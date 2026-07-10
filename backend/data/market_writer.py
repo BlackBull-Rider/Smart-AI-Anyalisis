@@ -26,10 +26,11 @@ import datetime
 import threading
 import traceback
 import contextlib
-import dataclasses
 import tracemalloc
 import functools
 import queue
+import dataclasses
+from dataclasses import dataclass, field
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
@@ -113,7 +114,7 @@ class AuditSeverity(Enum):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WriterConfig:
     dialect: Dialect = Dialect.SQLITE
-    db_url: str = "sqlite:////tmp/gbr_master.db"
+    db_url: str = "sqlite:///database/universe.db"
     max_connections: int = 20
     pool_timeout_sec: float = 30.0
     statement_timeout_sec: float = 60.0
@@ -363,6 +364,15 @@ class SQLiteAdapter(DatabaseAdapter):
         cols_csv = ", ".join(columns)
         vals_csv = ", ".join(["?"] * len(columns))
         if not pks: return f"INSERT INTO {table} ({cols_csv}) VALUES ({vals_csv})"
+        if table == "market_data":
+            pks = ["symbol", "timestamp", "timeframe"]
+        elif table == "live_market_data":
+            pks = ["symbol", "timestamp", "timeframe"]
+        elif table == "historical_data":
+            pks = ["symbol", "timestamp", "timeframe"]
+        elif table == "fundamental_data":
+            pks = ["symbol", "report_date"]
+
         conflict_cols = ", ".join(pks)
         updates = ", ".join([f"{col}=excluded.{col}" for col in columns if col not in pks])
         query = f"INSERT INTO {table} ({cols_csv}) VALUES ({vals_csv}) ON CONFLICT({conflict_cols}) "
@@ -539,6 +549,28 @@ class MarketWriter:
         version_id = int(time.time() * 1000)
         
         for r in records:
+            if "id" not in r or not r.get("id"):
+                r["id"] = str(uuid.uuid4())
+
+            if table_name in ("market_data", "historical_data", "live_market_data"):
+                if not r.get("timestamp"):
+                    r["timestamp"] = (
+                        r.get("date")
+                        or r.get("datetime")
+                        or r.get("time")
+                    )
+
+                ts = r.get("timestamp")
+                if ts is not None:
+                    try:
+                        import pandas as pd
+                        if isinstance(ts, pd.Timestamp):
+                            r["timestamp"] = ts.isoformat(sep=" ")
+                    except Exception:
+                        pass
+
+                r.setdefault("timeframe", "1D")
+
             if table_name == "master_ai_decision" and "version" not in r:
                 r["version"] = version_id
                 
@@ -565,7 +597,14 @@ class MarketWriter:
             raise SchemaError(f"Zero matching columns for {table_name}. Expected: {db_cols}")
             
         if mode == WriteMode.UPSERT:
+            print("=" * 80)
+            print("UPSERT DEBUG")
+            print("table      :", table_name)
+            print("db_pks     :", db_pks)
+            print("target_cols:", target_cols)
             query = self.adapter.build_upsert_query(table_name, target_cols, db_pks)
+            print(query)
+            print("=" * 80)
         elif mode == WriteMode.INSERT:
             v_ph = "?" if self.config.dialect == Dialect.SQLITE else "%s"
             query = f"INSERT INTO {table_name} ({', '.join(target_cols)}) VALUES ({', '.join([v_ph]*len(target_cols))})"
@@ -755,7 +794,7 @@ class MarketWriter:
     def write_indices(self, data: Any) -> int: return self.upsert("indices", data)
     def write_sector_data(self, data: Any) -> int: return self.upsert("sector_data", data)
     def write_industry_data(self, data: Any) -> int: return self.upsert("industry_data", data)
-    def write_master(self, data: Any) -> int: return self.upsert("master_stock", data)
+    def write_master(self, data: Any) -> int: return self.upsert("stock_master", data)
     
     def write_indicator_data(self, data: Any) -> int: return self.upsert("indicator_data", data)
     def write_indicator(self, data: Any) -> int: return self.upsert("indicator_data", data)

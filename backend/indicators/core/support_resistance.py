@@ -1014,13 +1014,13 @@ def adaptive_volume_profile(data: pd.DataFrame, length: int = 20, offset: int = 
 
 def swing_high_vwap(data: pd.DataFrame, offset: int = 0, fillna: Any = None) -> pd.Series:
     if 'anchored_vwap' not in globals():
-        from backend.indicators.volume import anchored_vwap
+        from backend.indicators.core.volume import anchored_vwap
     csh = confirmed_swing_high(data)
     return _finalize_output(anchored_vwap(data, anchor=(csh != csh.shift(1)) & (~csh.isna())).rename("SH_VWAP"), offset, fillna)
 
 def swing_low_vwap(data: pd.DataFrame, offset: int = 0, fillna: Any = None) -> pd.Series:
     if 'anchored_vwap' not in globals():
-        from backend.indicators.volume import anchored_vwap
+        from backend.indicators.core.volume import anchored_vwap
     csl = confirmed_swing_low(data)
     return _finalize_output(anchored_vwap(data, anchor=(csl != csl.shift(1)) & (~csl.isna())).rename("SL_VWAP"), offset, fillna)
 

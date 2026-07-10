@@ -509,3 +509,22 @@ __all__ = (
     "TimeoutError", "RetryExceededError", "ConcurrencyError",
     "ThreadError", "EventBusError", "NotificationError",
 )
+
+# ============================================================================
+# PIPELINE EXCEPTIONS
+# ============================================================================
+
+class PipelineError(GreenBullError):
+    """Base exception for all pipeline errors."""
+    pass
+
+
+class RetryableError(PipelineError):
+    """Temporary error that may be retried safely."""
+    pass
+
+
+class FatalError(PipelineError):
+    """Non-recoverable pipeline error."""
+    pass
+

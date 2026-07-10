@@ -256,6 +256,30 @@ class EnterpriseSchemas:
 # =========================================================================
 
 class MarketValidator:
+    def validate(self, data):
+        """
+        Legacy pipeline compatibility.
+        Returns list[dict].
+        """
+        result = type(self).validate_market_data(data)
+
+        print("=" * 80)
+        print("MARKET VALIDATOR DEBUG")
+        print("rows_input :", result.rows_input)
+        print("rows_output:", result.rows_output)
+        print("is_valid   :", result.is_valid)
+        print("errors     :", result.errors)
+        print("warnings   :", result.warnings)
+        print(result.clean_dataframe.head())
+        print(result.clean_dataframe.columns.tolist())
+        print("=" * 80)
+
+        if result.clean_dataframe.empty:
+            return []
+
+        return result.clean_dataframe.to_dict(orient="records")
+
+
     """
     Enterprise Data Quality Gatekeeper.
     Performs purely vectorized, highly defensive evaluations and sanitizations 

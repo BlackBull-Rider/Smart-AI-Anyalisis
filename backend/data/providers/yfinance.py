@@ -244,13 +244,13 @@ class YahooFinanceConfig:
     retry_count: int = 5
     retry_delay_sec: float = 1.5
     backoff_multiplier: float = 2.0
-    max_workers: int = 20
+    max_workers: int = 2
     max_symbols_per_batch: int = 1000
     
     enable_cache: bool = True
     memory_cache_size: int = 5000
     cache_ttl_sec: float = 300.0
-    disk_cache_dir: str = "/tmp/gbr_yf_cache"
+    disk_cache_dir: str = "backend/database/cache/yfinance"
     disk_cache_ttl_sec: float = 86400.0
     cache_compression: bool = True
     
@@ -273,8 +273,8 @@ class YahooFinanceConfig:
     enable_validation: bool = True
     enable_cleaning: bool = True
     enable_normalization: bool = True
-    enable_retry: bool = True
-    enable_circuit_breaker: bool = True
+    enable_retry: bool = False
+    enable_circuit_breaker: bool = False
     
     cb_failure_threshold: int = 15
     cb_recovery_timeout_sec: float = 60.0
@@ -708,7 +708,36 @@ class DataQualityEngine:
         col_map = {'Open': 'price_open', 'High': 'price_high', 'Low': 'price_low', 'Close': 'price_close', 'Adj Close': 'adj_close', 'Volume': 'volume', 'Dividends': 'dividends', 'Stock Splits': 'stock_splits'}
         df.rename(columns=col_map, inplace=True)
         df['symbol'] = symbol
-        valid_cols = ['symbol', 'price_open', 'price_high', 'price_low', 'price_close', 'adj_close', 'volume', 'dividends', 'stock_splits']
+
+        # Backward compatibility for existing pipeline
+        if 'price_open' in df.columns:
+            df['Open'] = df['price_open']
+        if 'price_high' in df.columns:
+            df['High'] = df['price_high']
+        if 'price_low' in df.columns:
+            df['Low'] = df['price_low']
+        if 'price_close' in df.columns:
+            df['Close'] = df['price_close']
+        if 'volume' in df.columns:
+            df['Volume'] = df['volume']
+
+        valid_cols = [
+            'symbol',
+            'price_open',
+            'price_high',
+            'price_low',
+            'price_close',
+            'adj_close',
+            'volume',
+            'dividends',
+            'stock_splits',
+            'Open',
+            'High',
+            'Low',
+            'Close',
+            'Volume',
+        ]
+
         return df[[c for c in valid_cols if c in df.columns]]
 
     @staticmethod
@@ -881,6 +910,12 @@ class YahooFinanceProvider:
         
         try:
             if self.config.enable_cache:
+                print("="*80)
+                print("CACHE KEY DEBUG")
+                print("func =", func_name)
+                print("args =", args)
+                print("kwargs =", kwargs)
+                print("="*80)
                 cached = self.cache.get(func_name, args, kwargs)
                 if cached is not None:
                     _logger.debug("Cache hit", operation=func_name, req_id=req_id)
@@ -946,14 +981,28 @@ class YahooFinanceProvider:
         yf_sym = self._ensure_ns_suffix(symbol)
         
         def _fetch():
-            ticker = yf.Ticker(yf_sym, session=self.session_mgr.get_session())
-            return ticker.history(period=period.value, interval=interval.value, timeout=self.config.timeout_sec)
+            print("FETCHING FROM YAHOO:", yf_sym)
+            ticker = yf.Ticker(yf_sym)
+            df = ticker.history(period=period.value, interval=interval.value, timeout=self.config.timeout_sec)
+            print("=" * 80)
+            print("YF DEBUG")
+            print("symbol:", symbol)
+            print(df.tail(3))
+            print("=" * 80)
+            return df
             
         t0 = time.perf_counter()
-        df = self._execute_with_resilience(_fetch, "get_history", yf_sym, interval.value, period.value)
+        print("CACHE ENABLE =", self.config.enable_cache)
+        df = self._execute_with_resilience(
+            _fetch,
+            "get_history"
+        )
+       
         
-        if df is None or df.empty: raise DownloadError(f"No data retrieved for {yf_sym}.")
-        
+        # Drop incomplete Yahoo candles
+        if not df.empty:
+            df = df.dropna(subset=["Open", "High", "Low", "Close"], how="all")
+
         if self.config.enable_validation:
             DataQualityEngine.validate_ohlcv(df, yf_sym)
             DataQualityEngine.verify_split_dividend_adjustments(df, yf_sym)
@@ -983,16 +1032,25 @@ class YahooFinanceProvider:
             df = self.get_history(symbol, interval, period)
         else:
             def _fetch():
-                ticker = yf.Ticker(yf_sym, session=self.session_mgr.get_session())
+                ticker = yf.Ticker(yf_sym)
                 start_str = last_dt.strftime("%Y-%m-%d")
                 return ticker.history(start=start_str, interval=interval.value, timeout=self.config.timeout_sec)
                 
-            df = self._execute_with_resilience(_fetch, "download_incremental", yf_sym, interval.value, last_dt.isoformat())
-            if df is None or df.empty: return pd.DataFrame()
-            
-            if self.config.enable_validation: DataQualityEngine.validate_ohlcv(df, yf_sym)
-            if self.config.enable_normalization: df = DataQualityEngine.normalize_ohlcv(df, yf_sym)
-            if self.config.enable_cleaning: df = DataQualityEngine.clean_ohlcv(df)
+            df = self._execute_with_resilience(
+                _fetch,
+                "download_incremental",
+                yf_sym,
+                interval.value,
+                last_dt.isoformat() if last_dt else None
+            )
+            if df is None or df.empty:
+                return pd.DataFrame()
+            if self.config.enable_validation:
+                DataQualityEngine.validate_ohlcv(df, yf_sym)
+            if self.config.enable_normalization:
+                df = DataQualityEngine.normalize_ohlcv(df, yf_sym)
+            if self.config.enable_cleaning:
+                df = DataQualityEngine.clean_ohlcv(df)
             df = df[df.index > last_dt]
             
         if not df.empty:
@@ -1037,10 +1095,57 @@ class YahooFinanceProvider:
     # =========================================================================
 
     @trace_span(operation="yf.get_fundamentals", component="provider", kind=SpanKind.CLIENT)
+    def fetch_batch(
+        self,
+        symbols,
+        since_map=None,
+        end_date=None,
+        timeframe="1D",
+    ):
+        interval_map = {
+            "1D": Interval.D1,
+            "1W": Interval.W1,
+            "1M": Interval.MO1,
+        }
+
+        interval = interval_map.get(str(timeframe).upper(), Interval.D1)
+
+        data = self.download_batch(
+            symbols=symbols,
+            interval=interval,
+            period=Period.MAX,
+        )
+
+        records = []
+
+        for symbol, df in data.items():
+            if df is None or df.empty:
+                continue
+
+            df = df.reset_index()
+            date_col = df.columns[0]
+
+            for _, row in df.iterrows():
+                records.append({
+                    "symbol": symbol,
+                    "timestamp": row[date_col],
+                    "open": float(row["Open"]),
+                    "high": float(row["High"]),
+                    "low": float(row["Low"]),
+                    "close": float(row["Close"]),
+                    "volume": int(row["Volume"]),
+                })
+        print("=" * 80)
+        print("FETCH_BATCH RECORD SAMPLE")
+        print(records[:5])
+        print("=" * 80)
+        return records
+
+
     def get_fundamentals(self, symbol: str) -> Dict[str, Any]:
         yf_sym = self._ensure_ns_suffix(symbol)
         def _fetch():
-            info = self._get_robust_info(yf.Ticker(yf_sym, session=self.session_mgr.get_session()))
+            info = self._get_robust_info(yf.Ticker(yf_sym))
             data = {
                 "symbol": yf_sym,
                 "market_cap": info.get("marketCap"),
@@ -1085,7 +1190,7 @@ class YahooFinanceProvider:
             }
             return data
             
-        data = self._execute_with_resilience(_fetch, "get_fundamentals", yf_sym)
+        data = self._execute_with_resilience(_fetch, "get_fundamentals")
         for hook in self.config.hooks.on_fundamental_sync:
             try: hook(symbol, data)
             except Exception: pass
@@ -1108,7 +1213,7 @@ class YahooFinanceProvider:
     def get_company_profile(self, symbol: str) -> Dict[str, Any]:
         yf_sym = self._ensure_ns_suffix(symbol)
         def _fetch():
-            info = self._get_robust_info(yf.Ticker(yf_sym, session=self.session_mgr.get_session()))
+            info = self._get_robust_info(yf.Ticker(yf_sym))
             return {
                 "company_name": info.get("shortName") or info.get("longName"),
                 "business_summary": info.get("longBusinessSummary"),
@@ -1122,7 +1227,7 @@ class YahooFinanceProvider:
                 "phone": info.get("phone"),
                 "currency": info.get("currency")
             }
-        return self._execute_with_resilience(_fetch, "get_company_profile", yf_sym)
+        return self._execute_with_resilience(_fetch, "get_company_profile")
 
     @trace_span(operation="yf.get_bulk_company_profiles", component="provider", kind=SpanKind.CLIENT)
     def get_bulk_company_profiles(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1144,16 +1249,16 @@ class YahooFinanceProvider:
     def get_latest_price(self, symbol: str) -> float:
         yf_sym = self._ensure_ns_suffix(symbol)
         def _fetch():
-            df = yf.Ticker(yf_sym, session=self.session_mgr.get_session()).history(period="1d", interval="1m", timeout=self.config.timeout_sec)
+            df = yf.Ticker(yf_sym).history(period="1d", interval="1m", timeout=self.config.timeout_sec)
             if df.empty: raise DownloadError("No tick data available.")
             return float(df['Close'].iloc[-1])
-        return self._execute_with_resilience(_fetch, "get_latest_price", yf_sym)
+        return self._execute_with_resilience(_fetch, "get_latest_price")
 
     @trace_span(operation="yf.get_quote", component="provider", kind=SpanKind.CLIENT)
     def get_quote(self, symbol: str) -> Dict[str, Any]:
         yf_sym = self._ensure_ns_suffix(symbol)
         def _fetch():
-            f_info = yf.Ticker(yf_sym, session=self.session_mgr.get_session()).fast_info
+            f_info = yf.Ticker(yf_sym).fast_info
             if not f_info: raise DownloadError("Fast info missing.")
             return {
                 "symbol": yf_sym,
@@ -1164,7 +1269,7 @@ class YahooFinanceProvider:
                 "volume": f_info.last_volume,
                 "market_cap": f_info.market_cap
             }
-        return self._execute_with_resilience(_fetch, "get_quote", yf_sym)
+        return self._execute_with_resilience(_fetch, "get_quote")
 
     @trace_span(operation="yf.get_bulk_quotes", component="provider", kind=SpanKind.CLIENT)
     def get_bulk_quotes(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1203,19 +1308,19 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_balance_sheet", component="provider", kind=SpanKind.CLIENT)
     def get_balance_sheet(self, symbol: str, quarterly: bool = False) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym, session=self.session_mgr.get_session()), "balance_sheet", quarterly, yf_sym)
+        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym), "balance_sheet", quarterly, yf_sym)
         return self._execute_with_resilience(_fetch, "get_balance_sheet", yf_sym, quarterly)
 
     @trace_span(operation="yf.get_income_statement", component="provider", kind=SpanKind.CLIENT)
     def get_income_statement(self, symbol: str, quarterly: bool = False) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym, session=self.session_mgr.get_session()), "income_stmt", quarterly, yf_sym)
+        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym), "income_stmt", quarterly, yf_sym)
         return self._execute_with_resilience(_fetch, "get_income_statement", yf_sym, quarterly)
 
     @trace_span(operation="yf.get_cashflow", component="provider", kind=SpanKind.CLIENT)
     def get_cashflow(self, symbol: str, quarterly: bool = False) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym, session=self.session_mgr.get_session()), "cashflow", quarterly, yf_sym)
+        def _fetch(): return self._safe_financial_extract(yf.Ticker(yf_sym), "cashflow", quarterly, yf_sym)
         return self._execute_with_resilience(_fetch, "get_cashflow", yf_sym, quarterly)
 
     def _execute_bulk_df(self, method: Callable, symbols: List[str], **kwargs) -> Dict[str, pd.DataFrame]:
@@ -1248,11 +1353,17 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_actions", component="provider", kind=SpanKind.CLIENT)
     def get_actions(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        df = self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).actions, "get_actions", yf_sym)
+        df = self._execute_with_resilience(
+            lambda: yf.Ticker(yf_sym).actions,
+            "get_actions",
+            yf_sym
+        )
         if df is not None and not df.empty:
             for hook in self.config.hooks.on_corporate_action:
-                try: hook(symbol, "ACTIONS", df)
-                except Exception: pass
+                try:
+                    hook(symbol, "ACTIONS", df)
+                except Exception:
+                    pass
         return df
 
     @trace_span(operation="yf.get_bulk_actions", component="provider", kind=SpanKind.CLIENT)
@@ -1262,18 +1373,18 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_dividends", component="provider", kind=SpanKind.CLIENT)
     def get_dividends(self, symbol: str) -> pd.Series:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).dividends, "get_dividends", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).dividends, "get_dividends", yf_sym)
 
     @trace_span(operation="yf.get_splits", component="provider", kind=SpanKind.CLIENT)
     def get_splits(self, symbol: str) -> pd.Series:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).splits, "get_splits", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).splits, "get_splits", yf_sym)
 
     @trace_span(operation="yf.get_option_chain", component="provider", kind=SpanKind.CLIENT)
     def get_option_chain(self, symbol: str) -> Dict[str, Any]:
         yf_sym = self._ensure_ns_suffix(symbol)
         def _fetch():
-            ticker = yf.Ticker(yf_sym, session=self.session_mgr.get_session())
+            ticker = yf.Ticker(yf_sym)
             expirations = ticker.options
             if not expirations: return {"expirations": [], "calls": pd.DataFrame(), "puts": pd.DataFrame()}
             chain = ticker.option_chain(expirations[0])
@@ -1287,7 +1398,7 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_news", component="provider", kind=SpanKind.CLIENT)
     def get_news(self, symbol: str) -> List[Dict[str, Any]]:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).news, "get_news", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).news, "get_news", yf_sym)
 
     @trace_span(operation="yf.get_bulk_news", component="provider", kind=SpanKind.CLIENT)
     def get_bulk_news(self, symbols: List[str]) -> Dict[str, List[Dict[str, Any]]]:
@@ -1304,7 +1415,7 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_esg", component="provider", kind=SpanKind.CLIENT)
     def get_esg(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).sustainability, "get_esg", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).sustainability, "get_esg", yf_sym)
 
     @trace_span(operation="yf.get_bulk_esg", component="provider", kind=SpanKind.CLIENT)
     def get_bulk_esg(self, symbols: List[str]) -> Dict[str, pd.DataFrame]:
@@ -1317,27 +1428,27 @@ class YahooFinanceProvider:
     @trace_span(operation="yf.get_recommendations", component="provider", kind=SpanKind.CLIENT)
     def get_recommendations(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).recommendations, "get_recommendations", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).recommendations, "get_recommendations", yf_sym)
 
     @trace_span(operation="yf.get_upgrades_downgrades", component="provider", kind=SpanKind.CLIENT)
     def get_upgrades_downgrades(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).upgrades_downgrades, "get_upgrades_downgrades", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).upgrades_downgrades, "get_upgrades_downgrades", yf_sym)
 
     @trace_span(operation="yf.get_earnings", component="provider", kind=SpanKind.CLIENT)
     def get_earnings(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).earnings, "get_earnings", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).earnings, "get_earnings", yf_sym)
 
     @trace_span(operation="yf.get_earnings_dates", component="provider", kind=SpanKind.CLIENT)
     def get_earnings_dates(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).earnings_dates, "get_earnings_dates", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).earnings_dates, "get_earnings_dates", yf_sym)
 
     @trace_span(operation="yf.get_insider_transactions", component="provider", kind=SpanKind.CLIENT)
     def get_insider_transactions(self, symbol: str) -> pd.DataFrame:
         yf_sym = self._ensure_ns_suffix(symbol)
-        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym, session=self.session_mgr.get_session()).insider_transactions, "get_insider_transactions", yf_sym)
+        return self._execute_with_resilience(lambda: yf.Ticker(yf_sym).insider_transactions, "get_insider_transactions", yf_sym)
 
     # =========================================================================
     # HEALTH CHECK & DIAGNOSTICS

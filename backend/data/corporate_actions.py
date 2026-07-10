@@ -119,7 +119,7 @@ class AuditSeverity(Enum):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CorporateActionSyncConfig:
     dialect: Dialect = Dialect.SQLITE
-    db_url: str = "sqlite:////tmp/gbr_master.db"
+    db_url: str = "sqlite:////tmp/universe.db"
     max_connections: int = 50
     async_workers: int = 10
     pool_timeout_sec: float = 15.0

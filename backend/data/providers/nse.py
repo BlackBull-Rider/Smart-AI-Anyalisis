@@ -230,11 +230,11 @@ class NSEConfig:
     backoff_multiplier: float = 2.0
     max_workers: int = 15
     
-    db_path: str = "/tmp/gbr_market_master.db"
+    db_path: str = "database/universe.db"
     enable_cache: bool = True
     memory_cache_size: int = 5000
     cache_ttl_sec: float = 300.0
-    disk_cache_dir: str = "/tmp/gbr_nse_cache"
+    disk_cache_dir: str = "backend/database/cache/nse"
     disk_cache_ttl_sec: float = 86400.0
     cache_compression: bool = True
     
