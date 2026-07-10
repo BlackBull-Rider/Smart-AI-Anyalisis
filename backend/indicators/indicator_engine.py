@@ -15,6 +15,8 @@ from backend.indicators.core import volatility
 from backend.indicators.core import candle
 from backend.indicators.core import pattern
 from backend.indicators.core import support_resistance
+from backend.indicators.core import statistics
+from backend.indicators.core import smart_money
 
 def run(symbol: str) -> pd.DataFrame:
 
@@ -655,6 +657,194 @@ def run(symbol: str) -> pd.DataFrame:
 
     eql = support_resistance.equal_lows(df)
     features["EQUAL_LOWS"] = eql["is_equal"]
+
+
+
+
+    # ==========================
+    # SMART MONEY
+    # ==========================
+
+    sm = smart_money
+
+    features["SM_SWING_HIGH"] = sm.swing_high(df)
+    features["SM_SWING_LOW"] = sm.swing_low(df)
+
+    features["SM_HIGHER_HIGH"] = sm.higher_high(df)
+    features["SM_HIGHER_LOW"] = sm.higher_low(df)
+    features["SM_LOWER_HIGH"] = sm.lower_high(df)
+    features["SM_LOWER_LOW"] = sm.lower_low(df)
+
+    features["SM_BOS"] = sm.bos(df)
+    features["SM_CHOCH"] = sm.choch(df)
+    features["SM_MSS"] = sm.market_structure_shift(df)
+
+    features["SM_BUY_SIDE_LIQUIDITY"] = sm.buy_side_liquidity(df)
+    features["SM_SELL_SIDE_LIQUIDITY"] = sm.sell_side_liquidity(df)
+
+    features["SM_FRESH_OB"] = sm.fresh_order_block(df)
+    features["SM_MITIGATED_OB"] = sm.mitigated_order_block(df)
+
+    features["SM_ACTIVE_FVG"] = sm.active_fvg(df)
+    features["SM_MITIGATED_FVG"] = sm.mitigated_fvg(df)
+
+    features["SM_PREMIUM_ZONE"] = sm.premium_zone(df)
+    features["SM_DISCOUNT_ZONE"] = sm.discount_zone(df)
+    features["SM_EQUILIBRIUM"] = sm.equilibrium(df)
+
+    features["SM_BOS_SCORE"] = sm.bos_score(df)
+    features["SM_CHOCH_SCORE"] = sm.choch_score(df)
+    features["SM_LIQUIDITY_SCORE"] = sm.liquidity_score(df)
+    features["SM_FVG_SCORE"] = sm.fvg_score(df)
+    features["SM_TREND_SCORE"] = sm.trend_score(df)
+    features["SM_INSTITUTIONAL_SCORE"] = sm.institutional_score(df)
+    features["SM_SMART_MONEY_SCORE"] = sm.smart_money_score(df)
+
+
+# ==========================
+# STATISTICS (PART-1)
+# ==========================
+
+    features["STAT_MEAN"] = statistics.mean(df)
+    features["STAT_ROLLING_MEAN"] = statistics.rolling_mean(df)
+
+    features["STAT_MEDIAN"] = statistics.median(df)
+    features["STAT_ROLLING_MEDIAN"] = statistics.rolling_median(df)
+
+    features["STAT_MODE"] = statistics.mode(df)
+
+    features["STAT_VARIANCE"] = statistics.variance(df)
+    features["STAT_ROLLING_VARIANCE"] = statistics.rolling_variance(df)
+
+    features["STAT_STD"] = statistics.standard_deviation(df)
+    features["STAT_ROLLING_STD"] = statistics.rolling_standard_deviation(df)
+
+    features["STAT_MAD"] = statistics.mean_absolute_deviation(df)
+    features["STAT_MEDIAN_MAD"] = statistics.median_absolute_deviation(df)
+
+    features["STAT_RMS"] = statistics.root_mean_square(df)
+
+    features["STAT_CV"] = statistics.coefficient_of_variation(df)
+
+    features["STAT_RANGE"] = statistics.range_stat(df)
+    features["STAT_IQR"] = statistics.interquartile_range(df)
+
+    features["STAT_QUANTILE"] = statistics.quantile(df)
+    features["STAT_PERCENTILE"] = statistics.percentile(df)
+    features["STAT_ROLLING_PERCENTILE"] = statistics.rolling_percentile(df)
+    features["STAT_PERCENTILE_RANK"] = statistics.percentile_rank(df)
+
+    features["STAT_ZSCORE"] = statistics.z_score(df)
+    features["STAT_ROLLING_ZSCORE"] = statistics.rolling_z_score(df)
+    features["STAT_MODIFIED_ZSCORE"] = statistics.modified_z_score(df)
+
+    features["STAT_MINMAX"] = statistics.min_max_scaling(df)
+    features["STAT_NORMALIZED"] = statistics.normalization(df)
+    features["STAT_ROBUST_SCALE"] = statistics.robust_scaling(df)
+    features["STAT_WINSORIZED"] = statistics.winsorization(df)
+
+
+
+
+# ==========================
+# STATISTICS (PART-2)
+# ==========================
+
+    features["STAT_SKEWNESS"] = statistics.skewness(df)
+    features["STAT_ROLLING_SKEWNESS"] = statistics.rolling_skewness(df)
+
+    features["STAT_KURTOSIS"] = statistics.kurtosis(df)
+    features["STAT_ROLLING_KURTOSIS"] = statistics.rolling_kurtosis(df)
+
+    features["STAT_ENTROPY"] = statistics.entropy(df)
+    features["STAT_SHANNON_ENTROPY"] = statistics.shannon_entropy(df)
+
+    features["STAT_JARQUE_BERA"] = statistics.jarque_bera(df)
+    features["STAT_NORMALITY"] = statistics.normality_score(df)
+
+    features["STAT_AUTOCORR"] = statistics.autocorrelation(df)
+
+    reg = statistics.rolling_regression(df)
+    features["REGRESSION_VALUE"] = reg["value"]
+    features["REGRESSION_SLOPE"] = reg["slope"]
+    features["REGRESSION_INTERCEPT"] = reg["intercept"]
+    features["REGRESSION_R2"] = reg["r2"]
+
+    lr = statistics.linear_regression(df)
+    features["LINEAR_REGRESSION_VALUE"] = lr["value"]
+    features["LINEAR_REGRESSION_SLOPE"] = lr["slope"]
+    features["LINEAR_REGRESSION_INTERCEPT"] = lr["intercept"]
+    features["LINEAR_REGRESSION_R2"] = lr["r2"]
+    features["REGRESSION_LINE"] = statistics.regression_line(df)
+    features["REGRESSION_VALUE_ONLY"] = statistics.regression_value(df)
+    features["REGRESSION_INTERCEPT_ONLY"] = statistics.regression_intercept(df)
+    features["REGRESSION_SLOPE_ONLY"] = statistics.regression_slope(df)
+    features["ROLLING_SLOPE"] = statistics.rolling_slope(df)
+
+    features["R_SQUARED"] = statistics.r_squared(df)
+    features["ADJUSTED_R_SQUARED"] = statistics.adjusted_r_squared(df)
+
+    features["REGRESSION_RESIDUAL"] = statistics.residual(df)
+    features["REGRESSION_RSE"] = statistics.residual_standard_error(df)
+
+    rc = statistics.regression_channel(df)
+    features["REG_CHANNEL_MIDDLE"] = rc["middle"]
+    features["REG_CHANNEL_UPPER"] = rc["upper"]
+    features["REG_CHANNEL_LOWER"] = rc["lower"]
+
+
+
+
+# ==========================
+# STATISTICS (PART-3)
+# ==========================
+
+    features["OUTLIER_DETECTION"] = statistics.outlier_detection(df)
+    features["THREE_SIGMA_RULE"] = statistics.three_sigma_rule(df)
+    features["MODIFIED_Z_OUTLIER"] = statistics.modified_z_outlier(df)
+
+    features["LINEAR_TREND_STRENGTH"] = statistics.linear_trend_strength(df)
+    features["TREND_ANGLE"] = statistics.trend_angle(df)
+    features["SLOPE_PERCENTAGE"] = statistics.slope_percentage(df)
+
+    features["COEFF_DISPERSION"] = statistics.coefficient_of_dispersion(df)
+    features["RELATIVE_STD_DEV"] = statistics.relative_standard_deviation(df)
+
+    # ---------------------------------
+    # Benchmark dependent statistics
+    # Using self benchmark to keep engine standalone.
+    # Replace with index dataframe later if needed.
+    # ---------------------------------
+
+    bench = df
+
+    features["PEARSON_CORR"] = statistics.pearson_correlation(df, bench)
+    features["ROLLING_PEARSON"] = statistics.rolling_pearson(df, bench)
+
+    # scipy not installed
+    # features["SPEARMAN_CORR"] = statistics.spearman_correlation(df, bench)
+    # scipy not installed
+    # features["ROLLING_SPEARMAN"] = statistics.rolling_spearman(df, bench)
+
+    # scipy not installed
+    # features["KENDALL_CORR"] = statistics.kendall_correlation(df, bench)
+    # scipy not installed
+    # features["ROLLING_KENDALL"] = statistics.rolling_kendall(df, bench)
+
+    features["LAG_CORRELATION"] = statistics.lag_correlation(df, bench)
+    features["CROSS_CORRELATION"] = statistics.cross_correlation(df, bench)
+
+    features["COVARIANCE"] = statistics.covariance(df, bench)
+    features["ROLLING_COVARIANCE"] = statistics.rolling_covariance(df, bench)
+
+    features["BETA"] = statistics.beta(df, bench)
+    features["ROLLING_BETA"] = statistics.rolling_beta(df, bench)
+
+    features["ALPHA"] = statistics.alpha(df, bench)
+    features["ROLLING_ALPHA"] = statistics.rolling_alpha(df, bench)
+
+    features["TRACKING_ERROR"] = statistics.tracking_error(df, bench)
+    features["INFORMATION_RATIO"] = statistics.information_ratio(df, bench)
 
 
     return features
