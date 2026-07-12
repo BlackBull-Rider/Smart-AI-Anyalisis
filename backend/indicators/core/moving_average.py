@@ -109,13 +109,24 @@ def _nan_safe_convolve(arr: np.ndarray, weights: np.ndarray) -> np.ndarray:
     Restores the original NaN mask to the output array.
     """
     length = len(weights)
+
+    out = np.full(len(arr), np.nan, dtype=np.float64)
+
+    if len(arr) == 0 or len(arr) < length:
+        return out
+
     mask = np.isnan(arr)
-    
-    s_filled = pd.Series(arr).ffill().bfill().to_numpy(dtype=np.float64)
-    conv = np.convolve(s_filled, weights, mode='valid')
-    
-    out = np.full(len(arr), np.nan)
-    out[length - 1:] = conv
+
+    s_filled = (
+        pd.Series(arr)
+        .ffill()
+        .bfill()
+        .to_numpy(dtype=np.float64)
+    )
+
+    conv = np.convolve(s_filled, weights, mode="valid")
+
+    out[length - 1:length - 1 + len(conv)] = conv
     out[mask] = np.nan
     return out
 
