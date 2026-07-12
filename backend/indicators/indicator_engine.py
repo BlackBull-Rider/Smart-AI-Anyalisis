@@ -2,12 +2,49 @@
 Moving Average Indicator Engine
 """
 
+from pathlib import Path
 import pandas as pd
 import warnings
+import sqlite3
+from pathlib import Path
 from pandas.errors import PerformanceWarning
 
 warnings.simplefilter("ignore", PerformanceWarning)
-from backend.data.data_fetcher import fetch_ohlcv
+
+DB_PATH = Path.home() / "Green-Bull-Data-Engine" / "database" / "market.db"
+
+def load_ohlcv_from_db(symbol: str) -> pd.DataFrame:
+    conn = sqlite3.connect(DB_PATH)
+
+    query = """
+        SELECT
+            date,
+            open,
+            high,
+            low,
+            close,
+            volume
+        FROM historical_data
+        WHERE symbol = ?
+        ORDER BY date DESC
+        LIMIT 400
+    """
+
+    df = pd.read_sql_query(
+        query,
+        conn,
+        params=(symbol,),
+        parse_dates=["date"],
+    )
+
+    conn.close()
+    df = df.sort_values("date")
+    if df.empty:
+        raise ValueError(f"No historical data found for {symbol}")
+
+    df.set_index("date", inplace=True)
+
+    return df
 from backend.indicators.core import moving_average
 from backend.indicators.core import momentum
 from backend.indicators.core import volume
@@ -20,9 +57,19 @@ from backend.indicators.core import smart_money
 
 def run(symbol: str) -> pd.DataFrame:
 
-    df = fetch_ohlcv(symbol)
+    df = load_ohlcv_from_db(symbol)
 
     features = pd.DataFrame(index=df.index)
+
+    # ==========================
+    # RAW OHLCV
+    # ==========================
+
+    features["OPEN"] = df["open"]
+    features["HIGH"] = df["high"]
+    features["LOW"] = df["low"]
+    features["CLOSE"] = df["close"]
+    features["VOLUME"] = df["volume"]
 
     features["ALMA_9"] = moving_average.alma(df)
     features["DEMA_20"] = moving_average.dema(df)
