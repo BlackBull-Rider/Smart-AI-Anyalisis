@@ -1,8 +1,8 @@
 {
-    "total_symbols": 2407,
-    "successful": 2407,
+    "total_symbols": 2411,
+    "successful": 2411,
     "failed": 0,
     "rows_saved": 0,
-    "elapsed_seconds": 0.03,
-    "timestamp": "2026-07-14T15:01:48.618756"
+    "elapsed_seconds": 0.14,
+    "timestamp": "2026-07-17T15:59:48.475676"
 }

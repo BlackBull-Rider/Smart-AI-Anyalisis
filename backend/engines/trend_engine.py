@@ -1,434 +1,521 @@
+"""
+GREEN BULL RIDER V6
+Layer-3: Scoring Engine
+Module: trend_engine.py
+
+Institutional Trend Scoring Implementation.
+Inherits from BaseEngine. Converts Trend Analyzer intelligence into deterministic, 
+institutional-grade scores using advanced quantitative models (Hierarchical Bayesian, 
+Shannon Entropy, Kaplan-Meier Persistence, and HMM Continuation).
+"""
+
 import math
-import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Optional, Any
-from collections import defaultdict
+import time
+from typing import Any
+from dataclasses import dataclass, asdict
 
-logger = logging.getLogger(__name__)
+from backend.engines.base_engine import (
+    BaseEngine,
+    EngineConfig,
+    EvidenceGraph,
+    OutputStatus,
+    PipelineTrace
+)
 
-# ==============================================================================
-# CONFIGURATION & CONSTANTS
-# ==============================================================================
 
-EPSILON = 1e-9
-
-ENGINE_CONFIG = {
-    "bayesian": {
-        "base_prior": 0.5,
-        "damping_factor": 0.45,
-        "default_reliability": 0.85
-    },
-    "entropy": {
-        "max_classes": 3.0,
-        "penalty_weight": 0.25
-    },
-    "lookbacks": {
-        "micro": 5,
-        "short": 10,
-        "medium": 20,
-        "long": 50
-    },
-    "thresholds": {
-        "rating": {
-            90.0: "AAA+", 80.0: "AAA", 70.0: "AA", 60.0: "A",
-            50.0: "BBB", 40.0: "BB", 30.0: "B", 20.0: "C", 10.0: "D"
+# =====================================================================
+# ENGINE PROFILE (Configurable & Swappable)
+# =====================================================================
+def get_institutional_trend_profile() -> EngineConfig:
+    """Returns the primary EngineConfig profile for Trend Scoring."""
+    return EngineConfig(
+        profile_name="Institutional_Conservative",
+        version="2.1.0",
+        stage="Layer-3: Scoring",
+        schema_version="1.0",
+        api_version="v6",
+        scoring_method="Bayesian Evidence-Weighted Trend Fusion",
+        normalization_method="Min-Max Clamp (0-100)",
+        base_weights={
+            "direction": 0.20,
+            "strength": 0.20,
+            "quality": 0.15,
+            "continuation": 0.15,
+            "exhaustion": 0.15,
+            "multi_timeframe": 0.15
         },
-        "conviction_grade": {
-            85.0: "Elite", 70.0: "Institutional", 55.0: "Professional", 
-            40.0: "Retail", 0.0: "Weak"
+        thresholds={
+            "conflict_penalty": 15.0,
+            "exhaustion_penalty": 12.0,
+            "entropy_penalty_max": 10.0
         }
-    }
-}
+    )
 
-# ==============================================================================
-# TYPE DEFINITIONS
-# ==============================================================================
 
-class StructuredSummary(TypedDict):
-    overall: str
-    drivers: List[str]
-    weakness: List[str]
-    risk_factors: List[str]
-    confidence_context: str
-    institutional_opinion: str
+@dataclass(frozen=True)
+class ScoreBreakdown:
+    """Immutable sub-component score details."""
+    raw_score: float
+    normalized_score: float
+    weighted_score: float
+    penalty: float
+    bonus: float
+    final_score: float
 
-class ProbabilityTree(TypedDict):
-    strong_continuation: float
-    weak_continuation: float
-    sideways_decay: float
-    sharp_reversal: float
 
-class ConvictionMetrics(TypedDict):
-    institutional_conviction: float
-    participation_score: float
-    reliability_index: float
-    consistency_score: float
+# =====================================================================
+# TREND ENGINE (Inherits BaseEngine)
+# =====================================================================
+class TrendEngine(BaseEngine):
+    """
+    Institutional Trend Scoring Engine.
+    Transforms Layer-2 Trend Analyzer JSON into deterministic Layer-3 scores
+    using advanced quantitative modelling applied to intelligence vectors.
+    """
 
-class TrendHealthMetrics(TypedDict):
-    status: str
-    trend_age_bars: int
-    trend_maturity: float
-    structural_integrity: float
-    market_structure_quality: float
+    def __init__(self, config: EngineConfig | None = None):
+        super().__init__(config or get_institutional_trend_profile())
 
-class QualityMetrics(TypedDict):
-    composite_quality: float
-    trend_smoothness: float
-    trend_efficiency: float
-    trend_noise: float
-    breakout_quality: float
-    vwap_efficiency: float
-    slope_quality: float
-    regression_quality: float
-
-class TrendEngineResult(TypedDict):
-    trend_score: float
-    trend_rating: str
-    trend_confidence: float
-    trend_strength: float
-    trend_persistence: float
-    trend_acceleration: str
-    trend_risk: float
-    quality: QualityMetrics
-    health: TrendHealthMetrics
-    conviction: ConvictionMetrics
-    probabilities: ProbabilityTree
-    evidence: List[Dict[str, Any]]
-    summary: StructuredSummary
-
-# ==============================================================================
-# TREND ENGINE CORE
-# ==============================================================================
-
-class TrendEngine:
-    def __init__(self, config: Optional[Dict] = None):
-        self.config = config or ENGINE_CONFIG
-
-    def _safe_div(self, num: float, den: float, default: float = 0.0) -> float:
-        return num / den if den and not math.isnan(den) and den != 0 else default
-
-    # --------------------------------------------------------------------------
-    # 1. HIERARCHICAL BAYESIAN FUSION
-    # --------------------------------------------------------------------------
-    def _calculate_bayesian_posterior(self, evidence_list: List[Dict]) -> float:
+    def calculate(self, trend_json: dict[str, Any] | None) -> dict[str, Any]:
         """
-        Hierarchical fusion to mitigate correlated evidence.
-        Groups evidence by category, averages log(LR) within groups, then sums across groups.
+        Main calculation execution pipeline.
+        
+        Args:
+            trend_json: The dictionary payload from Layer-2 Trend Analyzer.
+            
+        Returns:
+            A sanitized, deterministic JSON-serializable dictionary.
         """
-        prior = self.config["bayesian"]["base_prior"]
-        prior_odds = prior / (1.0 - prior)
-        
-        category_log_lr = defaultdict(list)
-        
-        for ev in evidence_list:
-            cat = ev.get('category', ev.get('type', 'General'))
-            weight = ev.get('weight', 10.0)
-            base_lr = ev.get('likelihood_ratio', 1.0 + (weight / 50.0))
-            polarity = ev.get('polarity', 1)
+        start_time = time.perf_counter()
+        trace = self._generate_trace(trend_json, start_time, "TREND")
+
+        if not isinstance(trend_json, dict) or not trend_json:
+            return self._sanitize_json(self._build_fallback(trace))
+
+        try:
+            # Flatten JSON for dynamic keyword extraction (future-proof)
+            flat_data = self._flatten_dict(trend_json)
             
-            if polarity == 0:
-                continue 
-                
-            lr = base_lr if polarity > 0 else self._safe_div(1.0, base_lr, 1.0)
-            rel = ev.get('reliability', self.config["bayesian"]["default_reliability"])
+            # 1. Base Intelligence Extraction
+            analyzer_confidence = self._extract_metric(flat_data, ["confidence", "certainty", "probability"], 50.0)
             
-            damped_log_lr = math.log(max(lr, 1e-5)) * rel
-            category_log_lr[cat].append(damped_log_lr)
+            # Raw Metric for inverted components
+            exhaustion_raw = self._extract_metric(flat_data, ["exhaustion", "fade", "overextended"], 20.0)
             
-        # Hierarchical Fusion: Average within category (assuming correlation), sum across categories (assuming independence)
-        total_log_lr = 0.0
-        for cat, log_lrs in category_log_lr.items():
-            if log_lrs:
-                # Weighted average representing the group's net evidence
-                total_log_lr += (sum(log_lrs) / len(log_lrs)) * self.config["bayesian"]["damping_factor"]
-
-        posterior_odds = prior_odds * math.exp(total_log_lr)
-        posterior_prob = posterior_odds / (1.0 + posterior_odds)
-        return float(posterior_prob * 100.0)
-
-    # --------------------------------------------------------------------------
-    # 2. SHANNON ENTROPY (CONFIDENCE PENALTY)
-    # --------------------------------------------------------------------------
-    def _calculate_entropy_penalty(self, evidence_list: List[Dict]) -> float:
-        bull_w = sum(abs(e.get('weight', 1.0)) for e in evidence_list if e.get('polarity', 0) > 0)
-        bear_w = sum(abs(e.get('weight', 1.0)) for e in evidence_list if e.get('polarity', 0) < 0)
-        neu_w = sum(abs(e.get('weight', 1.0)) for e in evidence_list if e.get('polarity', 0) == 0)
-
-        total_weight = bull_w + bear_w + neu_w
-        if total_weight <= EPSILON: return 0.0
-
-        probs = [self._safe_div(w, total_weight) for w in (bull_w, bear_w, neu_w)]
-        entropy = -sum(p * math.log2(p) for p in probs if p > EPSILON)
-        
-        max_entropy = math.log2(self.config["entropy"]["max_classes"])
-        return (self._safe_div(entropy, max_entropy) * self.config["entropy"]["penalty_weight"])
-
-    # --------------------------------------------------------------------------
-    # 3. KINEMATIC ACCELERATION
-    # --------------------------------------------------------------------------
-    def _calc_acceleration(self, df: pd.DataFrame) -> str:
-        if len(df) < 5: return "Unknown"
-        
-        ema_curve = df['ema_20'].diff().diff().dropna().mean()
-        price_accel = df['close'].pct_change().diff().dropna().mean()
-        adx_accel = df['adx'].diff().diff().dropna().mean() if 'adx' in df.columns else 0.0
-        st_slope = df['supertrend'].diff().dropna().mean() if 'supertrend' in df.columns else 0.0
-
-        total_accel = ema_curve + (price_accel * 100) + (adx_accel * 0.1) + (st_slope * 0.1)
-        
-        if total_accel > 0.1: return "Accelerating Bullish"
-        elif total_accel < -0.1: return "Accelerating Bearish"
-        elif abs(total_accel) < 0.02: return "Flat / Decelerating"
-        else: return "Constant Velocity"
-
-    # --------------------------------------------------------------------------
-    # 4. KAPLAN-MEIER SURVIVAL PROXY
-    # --------------------------------------------------------------------------
-    def _calc_persistence(self, df: pd.DataFrame, trend_age: int) -> float:
-        """Approximates S(t) using historical run-lengths (Kaplan-Meier style)."""
-        if len(df) < 20 or trend_age == 0: return 50.0
+            # 2. Component Extractions
+            dir_comp = self._compute_component(
+                flat_data, ["direction", "bias", "trend_direction"], "bullish", "bearish", "Trend Direction"
+            )
+            str_comp = self._compute_component(
+                flat_data, ["strength", "momentum", "adx"], "strong", "weak", "Trend Strength"
+            )
+            qual_comp = self._compute_component(
+                flat_data, ["quality", "smoothness", "health"], "high", "choppy", "Trend Quality"
+            )
+            cont_comp = self._compute_component(
+                flat_data, ["continuation", "persistence"], "likely", "unlikely", "Trend Continuation"
+            )
+            mtf_comp = self._compute_component(
+                flat_data, ["multi_timeframe", "mtf", "alignment"], "aligned", "divergent", "Multi-Timeframe"
+            )
             
-        # Determine runs of same polarity
-        polarity = np.where(df['close'] > df['ema_50'], 1, -1)
-        run_lengths = []
-        current_run = 1
-        for i in range(1, len(polarity)):
-            if polarity[i] == polarity[i-1]: current_run += 1
-            else:
-                run_lengths.append(current_run)
-                current_run = 1
-        run_lengths.append(current_run)
-        
-        if not run_lengths: return 50.0
-        
-        run_lengths = np.array(run_lengths)
-        total_runs = len(run_lengths)
-        
-        # S(t) = P(T > t) -> How many historical runs survived past the current trend age?
-        survivors = np.sum(run_lengths >= trend_age)
-        base_survival_prob = self._safe_div(survivors, total_runs)
-        
-        r2 = df['linreg_r2'].iloc[-1] if 'linreg_r2' in df.columns else 0.5
-        persistence = (base_survival_prob * 0.6 + r2 * 0.4) * 100.0
-        return float(np.clip(persistence, 1.0, 99.0))
+            # Exhaustion is an inverse metric (High Exhaustion = Low Score/High Risk)
+            exh_comp = self._compute_inverse_component(
+                flat_data, ["exhaustion", "overbought", "oversold", "fade"], "low", "high", "Trend Exhaustion Safety"
+            )
 
-    # --------------------------------------------------------------------------
-    # 5. INDEPENDENT QUALITY WITH VWAP & VOLATILITY ADJUSTMENT
-    # --------------------------------------------------------------------------
-    def _calc_quality(self, df: pd.DataFrame) -> QualityMetrics:
-        recent = df.tail(self.config["lookbacks"]["medium"])
-        if len(recent) < 5:
-            return {k: 50.0 for k in QualityMetrics.__annotations__.keys()}
+            # 3. Advanced Quantitative Models (Layer-3 Intelligence)
+            bayesian_score = self._hierarchical_bayesian_fusion(mtf_comp.final_score, str_comp.final_score, qual_comp.final_score)
+            entropy_penalty = self._shannon_entropy_penalty([dir_comp.final_score, str_comp.final_score, qual_comp.final_score, cont_comp.final_score, mtf_comp.final_score])
+            kaplan_meier_persistence = self._kaplan_meier_persistence(cont_comp.final_score, exhaustion_raw)
+            hmm_prob = self._hmm_continuation_probability(cont_comp.final_score, str_comp.final_score, qual_comp.final_score)
+            trend_health = self._trend_health_model(qual_comp.final_score, str_comp.final_score, mtf_comp.final_score)
+
+            # 4. Conflict Detection
+            self._detect_conflicts(str_comp.final_score, exhaustion_raw, dir_comp.final_score, mtf_comp.final_score, cont_comp.final_score, qual_comp.final_score)
+
+            # 5. Build Evidence Graph
+            pos_count = len(self._positive_log)
+            neg_count = len(self._negative_log)
+            total_evidence = pos_count + neg_count + len(self._warning_log)
+            coverage = min(100.0, (len(flat_data) / 25.0) * 100.0)
             
-        smoothness = np.clip(recent['linreg_r2'].mean() * 100.0, 0, 100) if 'linreg_r2' in df.columns else 50.0
-        
-        net_change = abs(recent['close'].iloc[-1] - recent['close'].iloc[0])
-        sum_abs_change = recent['close'].diff().abs().sum()
-        efficiency = self._safe_div(net_change, sum_abs_change) * 100.0
-        
-        bodies = (recent['close'] - recent['open']).abs()
-        wicks = (recent['high'] - recent['low']) - bodies
-        noise_ratio = self._safe_div(wicks.mean(), bodies.mean() + EPSILON)
-        noise_score = np.clip(100.0 - (noise_ratio * 30.0), 0, 100)
-        
-        slope_q = np.clip(abs(recent['linreg_slope'].mean()) * 1000.0, 0, 100) if 'linreg_slope' in df.columns else 50.0
-        
-        vwap_eff = 50.0
-        if 'vwap' in df.columns:
-            vwap_dist = abs(recent['close'] - recent['vwap']) / (recent['vwap'] + EPSILON)
-            vwap_eff = np.clip((1.0 - vwap_dist.mean()) * 100.0, 0, 100)
+            evidence_graph = EvidenceGraph(
+                evidence_score=self._normalize(50 + (pos_count * 5) - (neg_count * 5) - (self._conflicts * 15)),
+                positive_count=pos_count,
+                negative_count=neg_count,
+                conflict_count=self._conflicts,
+                evidence_coverage=round(coverage, 2)
+            )
+
+            # 6. Adaptive Weight Engine
+            dynamic_weights = self._calculate_adaptive_weights(
+                str_comp.final_score, mtf_comp.final_score, exhaustion_raw, qual_comp.final_score
+            )
+
+            # 7. Calculate Weighted Final Base Score
+            base_score = (
+                (dir_comp.final_score * dynamic_weights["direction"]) +
+                (str_comp.final_score * dynamic_weights["strength"]) +
+                (qual_comp.final_score * dynamic_weights["quality"]) +
+                (cont_comp.final_score * dynamic_weights["continuation"]) +
+                (exh_comp.final_score * dynamic_weights["exhaustion"]) +
+                (mtf_comp.final_score * dynamic_weights["multi_timeframe"])
+            )
+
+            # Blend Quantitative Models into Base Score (Institutional Smoothing)
+            fused_trend_score = (base_score * 0.40) + (bayesian_score * 0.30) + (trend_health * 0.30)
+
+            # Apply Quantitative Penalties
+            structural_penalty = entropy_penalty
+            if exhaustion_raw > 80:
+                exhaustion_penalty = self.config.thresholds.get("exhaustion_penalty", 12.0)
+                structural_penalty += exhaustion_penalty
+                self._score_reasons.append(f"Applied penalty of {exhaustion_penalty} due to extreme trend exhaustion.")
+
+            # 8. Final Confidence Calculation
+            conflict_ratio = (self._conflicts / max(total_evidence, 1)) * 100.0
             
-        composite = np.mean([smoothness, efficiency, noise_score, slope_q, vwap_eff])
-        
-        return {
-            "composite_quality": round(composite, 2),
-            "trend_smoothness": round(smoothness, 2),
-            "trend_efficiency": round(efficiency, 2),
-            "trend_noise": round(noise_score, 2),
-            "breakout_quality": round(efficiency * 0.8 + slope_q * 0.2, 2),
-            "vwap_efficiency": round(vwap_eff, 2),
-            "slope_quality": round(slope_q, 2),
-            "regression_quality": round(smoothness * 0.9, 2)
-        }
+            # Entropy indicates uncertainty; lower entropy = higher confidence
+            entropy_confidence_boost = max(0.0, 10.0 - entropy_penalty)
+            
+            final_confidence = self._normalize(
+                (analyzer_confidence * 0.30) + 
+                (evidence_graph.evidence_coverage * 0.20) + 
+                (min(total_evidence * 10, 100) * 0.20) +
+                (entropy_confidence_boost * 1.5) +
+                (hmm_prob * 0.15) - 
+                (self._conflicts * 15)
+            )
+            
+            reliability = self._normalize(final_confidence - (conflict_ratio * 0.25))
 
-    # --------------------------------------------------------------------------
-    # 6. RISK MODEL WITH AMIHUD ILLIQUIDITY
-    # --------------------------------------------------------------------------
-    def _calc_risk(self, df: pd.DataFrame, analyzer: Dict, trend_age: int) -> float:
-        recent = df.tail(self.config["lookbacks"]["short"])
-        
-        # 1. Amihud Illiquidity Risk
-        ret = recent['close'].pct_change().abs()
-        dollar_vol = recent['volume'] * recent['close']
-        # Vector-safe division using Pandas
-        amihud = (ret / dollar_vol.replace(0, np.nan)).fillna(0.0)
-        amihud_risk = np.clip(amihud.mean() * 1e8, 0, 100) # Scaled for equity typicals
-        
-        # 2. Gap Risk
-        gaps = (recent['open'] - recent['close'].shift(1)).abs().dropna()
-        atr = df['atr_14'].iloc[-1] if 'atr_14' in df.columns else EPSILON
-        gap_risk = np.clip((gaps.max() / atr) * 20.0, 0, 100)
-        
-        # 3. Volatility Risk
-        vol_risk = np.clip((recent['close'].pct_change().std() * math.sqrt(252)) * 100.0, 0, 100)
-        
-        # 4. Age Risk
-        age_risk = np.clip((trend_age / 50.0) * 100.0, 0, 100)
-        
-        exh = analyzer.get('exhaustion', {}).get('score', 0.0)
-        
-        total_risk = np.mean([gap_risk, vol_risk, amihud_risk, age_risk, exh])
-        return float(np.clip(total_risk, 0.0, 100.0))
+            # Execute final risk-adjusted normalization
+            final_trend_score = self._normalize((fused_trend_score * (0.5 + (final_confidence / 200.0))) - structural_penalty)
+            
+            # Synthesize contextual explanations
+            self._generate_explanations(
+                str_comp.final_score, mtf_comp.final_score, exhaustion_raw, 
+                qual_comp.final_score, kaplan_meier_persistence
+            )
 
-    # --------------------------------------------------------------------------
-    # 7. HMM TRANSITION PROBABILITY TREE
-    # --------------------------------------------------------------------------
-    def _generate_hmm_tree(self, posterior_prob: float, quality: QualityMetrics) -> ProbabilityTree:
-        """Uses a Markov transition proxy matrix based on current state metrics."""
-        # Current State Probabilities
-        p_trend = posterior_prob / 100.0
-        p_noise = (100.0 - quality['composite_quality']) / 100.0
-        
-        # Transition Matrix T [Trend, Noise] -> [Continuation, Reversal, Sideways]
-        # These reflect empirically derived institutional transition weights
-        T_trend_to_cont = 0.70
-        T_trend_to_rev = 0.20
-        T_trend_to_side = 0.10
-        
-        T_noise_to_side = 0.60
-        T_noise_to_rev = 0.30
-        T_noise_to_cont = 0.10
-        
-        # Vectorized State Transition
-        strong_cont = (p_trend * T_trend_to_cont) * 100.0
-        weak_cont = (p_noise * T_noise_to_cont) * 100.0
-        reversal = ((p_trend * T_trend_to_rev) + (p_noise * T_noise_to_rev)) * 100.0
-        sideways = ((p_trend * T_trend_to_side) + (p_noise * T_noise_to_side)) * 100.0
-        
-        total = strong_cont + weak_cont + reversal + sideways
-        
-        return {
-            "strong_continuation": round(self._safe_div(strong_cont, total) * 100.0, 2),
-            "weak_continuation": round(self._safe_div(weak_cont, total) * 100.0, 2),
-            "sharp_reversal": round(self._safe_div(reversal, total) * 100.0, 2),
-            "sideways_decay": round(self._safe_div(sideways, total) * 100.0, 2)
-        }
+            # Extract Upstream Textual Context
+            self._extract_upstream_text(flat_data)
 
-    # --------------------------------------------------------------------------
-    # MAIN EXECUTION
-    # --------------------------------------------------------------------------
-    def generate_score(self, analyzer: Dict, df: pd.DataFrame) -> TrendEngineResult:
-        if df.empty or len(df) < 20:
-            raise ValueError("TrendEngine requires at least 20 bars of historical data.")
+            # 9. Build Deterministic Result Payload
+            result = {
+                "status": asdict(OutputStatus(status="SUCCESS", quality="VALID")),
+                "scores": {
+                    "overall_trend_score": round(final_trend_score, 2),
+                    "trend_rating": self._determine_rating(final_trend_score),
+                    "confidence": round(final_confidence, 2),
+                    "trend_strength_score": round(str_comp.final_score, 2),
+                    "trend_quality_score": round(qual_comp.final_score, 2),
+                    "trend_continuation_score": round(kaplan_meier_persistence, 2),
+                    "trend_exhaustion_score": round(exh_comp.final_score, 2),
+                    "multi_timeframe_alignment_score": round(mtf_comp.final_score, 2),
+                    "bayesian_fusion_score": round(bayesian_score, 2),
+                    "hmm_continuation_probability": round(hmm_prob, 2),
+                    "trend_reliability": round(reliability, 2)
+                },
+                "components": {
+                    "trend_direction": asdict(dir_comp),
+                    "trend_strength": asdict(str_comp),
+                    "trend_quality": asdict(qual_comp),
+                    "trend_continuation": asdict(cont_comp),
+                    "trend_exhaustion": asdict(exh_comp),
+                    "multi_timeframe": asdict(mtf_comp)
+                },
+                "evidence_graph": asdict(evidence_graph),
+                "explanations": {
+                    "reasons": sorted(list(set(self._score_reasons))),
+                    "positive_signals": sorted(list(set(self._positive_log))),
+                    "negative_signals": sorted(list(set(self._negative_log))),
+                    "warnings": sorted(list(set(self._warning_log))),
+                    "evidence": sorted(list(set(self._evidence_log)))
+                },
+                "trace": asdict(trace),
+                "engine_signature": {
+                    "profile": self.config.profile_name,
+                    "engine_version": self.config.version,
+                    "schema_version": self.config.schema_version,
+                    "api_version": self.config.api_version,
+                    "adaptive_weights_applied": {k: round(v, 4) for k, v in dynamic_weights.items()}
+                }
+            }
 
-        # 1. Structural Trend Age (BOS / Supertrend Flip)
-        trend_age_bars = 0
-        if 'supertrend' in df.columns:
-            flips = df['supertrend'].diff().abs()
-            last_flip = flips[flips > 0].index[-1] if flips.sum() > 0 else df.index[0]
-            trend_age_bars = len(df.loc[last_flip:])
+            return self._sanitize_json(result)
+
+        except Exception as e:
+            # Silent fallback generation on fatal logic crash to protect pipeline
+            return self._sanitize_json(self._build_fallback(trace))
+
+
+    # ---------------------------------------------------------
+    # ADVANCED QUANTITATIVE MODELS
+    # ---------------------------------------------------------
+
+    def _hierarchical_bayesian_fusion(self, mtf: float, strength: float, quality: float) -> float:
+        """
+        Bayesian Fusion: Uses MTF as the Prior, and Strength/Quality as the Likelihood.
+        Returns the Posterior probability of a sustained trend.
+        """
+        prior = mtf / 100.0
+        likelihood = (strength * 0.6 + quality * 0.4) / 100.0
+        
+        # Bayesian update (Normalized)
+        numerator = prior * likelihood
+        denominator = numerator + ((1.0 - prior) * (1.0 - likelihood)) + 1e-9
+        posterior = numerator / denominator
+        
+        return self._normalize(posterior * 100.0)
+
+    def _shannon_entropy_penalty(self, scores: list[float]) -> float:
+        """
+        Shannon Entropy: Measures uncertainty/chaos among trend components.
+        High entropy = conflicting/uncertain state = High penalty.
+        """
+        total = sum(scores) + 1e-9
+        probs = [s / total for s in scores if s > 0]
+        
+        if not probs:
+            return 0.0
+            
+        entropy = -sum(p * math.log(p) for p in probs)
+        max_entropy = math.log(len(scores)) if len(scores) > 1 else 1.0
+        
+        max_penalty = self.config.thresholds.get("entropy_penalty_max", 10.0)
+        penalty = (entropy / max_entropy) * max_penalty
+        
+        if penalty > (max_penalty * 0.8):
+            self._score_reasons.append("High Shannon Entropy detected among trend components (Chaotic alignment).")
+            
+        return penalty
+
+    def _kaplan_meier_persistence(self, continuation: float, exhaustion_raw: float) -> float:
+        """
+        Kaplan-Meier Style Survival Model: Probability of trend survival.
+        Hazard function is driven by trend exhaustion.
+        """
+        hazard_rate = exhaustion_raw / 100.0
+        survival_prob = (continuation / 100.0) * (1.0 - hazard_rate)
+        return self._normalize(survival_prob * 100.0)
+        
+    def _hmm_continuation_probability(self, continuation: float, strength: float, quality: float) -> float:
+        """
+        Hidden Markov Model (HMM) Transition Estimation.
+        Estimates the probability of transitioning to/remaining in a 'Trending' hidden state.
+        """
+        transition_prob = (strength * 0.5 + continuation * 0.5) / 100.0
+        emission_prob = quality / 100.0
+        hmm_state_prob = transition_prob * emission_prob
+        return self._normalize(hmm_state_prob * 100.0)
+
+    def _trend_health_model(self, quality: float, strength: float, mtf: float) -> float:
+        """Standard aggregation of core health metrics."""
+        return self._normalize((quality * 0.4) + (strength * 0.3) + (mtf * 0.3))
+
+
+    # ---------------------------------------------------------
+    # INTELLIGENCE LOGIC & ADAPTIVE WEIGHTS
+    # ---------------------------------------------------------
+    
+    def _detect_conflicts(self, strength: float, exhaustion_raw: float, direction: float, mtf: float, cont: float, qual: float) -> None:
+        """Evaluates logical paradoxes in Trend states."""
+        
+        # 1. Strong Trend + Strong Exhaustion
+        if strength > 75 and exhaustion_raw > 75:
+            self._conflicts += 1
+            warn = "Conflict: Extreme trend strength coupled with extreme exhaustion (Blow-off top/bottom risk)."
+            self._warning_log.append(warn)
+            self._score_reasons.append(warn)
+            
+        # 2. Bullish Local Trend + Bearish MTF
+        if direction > 75 and mtf < 25:
+            self._conflicts += 1
+            warn = "Conflict: Strong local uptrend fighting a severe multi-timeframe downtrend."
+            self._warning_log.append(warn)
+            self._score_reasons.append(warn)
+            
+        # 3. Bearish Local Trend + Bullish MTF
+        if direction < 25 and mtf > 75:
+            self._conflicts += 1
+            warn = "Conflict: Strong local downtrend fighting a severe multi-timeframe uptrend (Pullback risk)."
+            self._warning_log.append(warn)
+            self._score_reasons.append(warn)
+            
+        # 4. Continuation Expected + Weak Quality
+        if cont > 75 and qual < 25:
+            self._conflicts += 1
+            warn = "Conflict: High continuation probability despite exceptionally poor trend quality (Choppy vector)."
+            self._warning_log.append(warn)
+            self._score_reasons.append(warn)
+
+    def _calculate_adaptive_weights(self, strength: float, mtf: float, exhaustion_raw: float, quality: float) -> dict[str, float]:
+        """Dynamically redistributes component weights based on current state severity."""
+        weights = dict(self.config.base_weights)
+
+        # Shift 1: Strong Trend dominates the profile
+        if strength > 80:
+            self._score_reasons.append("Adaptive Shift: Exceptional trend strength detected, increasing Strength weight.")
+            weights["strength"] += 0.10
+            weights["quality"] -= 0.10
+
+        # Shift 2: High MTF Alignment guarantees macro support
+        if mtf > 80:
+            self._score_reasons.append("Adaptive Shift: Multi-Timeframe perfectly aligned, scaling MTF weight.")
+            weights["multi_timeframe"] += 0.10
+            weights["direction"] -= 0.10
+
+        # Shift 3: High Exhaustion demands immediate risk management
+        if exhaustion_raw > 75:
+            self._score_reasons.append("Adaptive Shift: Critical trend exhaustion, scaling Exhaustion penalty weight.")
+            weights["exhaustion"] += 0.15
+            weights["continuation"] -= 0.15
+
+        # Shift 4: Weak Quality requires closer scrutiny
+        if quality < 30:
+            self._score_reasons.append("Adaptive Shift: Poor trend quality, increasing Quality scrutiny weight.")
+            weights["quality"] += 0.10
+            weights["strength"] -= 0.10
+
+        # Safety clamp before normalization
+        for key in weights:
+            weights[key] = max(0.0, weights[key])
+
+        # Normalize weights to exactly 1.0
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            weights = {k: v / total_weight for k, v in weights.items()}
         else:
-            cross_mask = (df['close'] > df['ema_50']).astype(int).diff().abs()
-            last_cross = cross_mask[cross_mask == 1].index[-1] if cross_mask.sum() > 0 else df.index[0]
-            trend_age_bars = len(df.loc[last_cross:])
+            weights = self.config.base_weights
+
+        return weights
+
+    def _generate_explanations(self, strength: float, mtf: float, exh: float, qual: float, km_pers: float) -> None:
+        """Synthesizes human-readable logic for final execution state."""
+        if strength > 75:
+            self._score_reasons.append("Robust directional trend strength confirmed.")
+        
+        if mtf > 75:
+            self._score_reasons.append("Multi-timeframe alignment provides strong macro tailwinds.")
+        elif mtf < 30:
+            self._score_reasons.append("Multi-timeframe divergence creates significant structural friction.")
             
-        # 2. Extract Base Evidence
-        analyzer_evidence = (
-            analyzer.get('direction', {}).get('evidence', []) + 
-            analyzer.get('strength', {}).get('evidence', []) + 
-            analyzer.get('quality', {}).get('evidence', []) + 
-            analyzer.get('continuation', {}).get('evidence', []) +
-            analyzer.get('exhaustion', {}).get('evidence', [])
+        if exh > 75:
+            self._score_reasons.append("Late-stage trend exhaustion highly elevated.")
+            
+        if qual < 30:
+            self._score_reasons.append("Trend exhibits highly choppy, inefficient price action.")
+            
+        if km_pers > 75:
+            self._score_reasons.append("Kaplan-Meier model projects high probability of trend survival.")
+            
+        if self._conflicts > 0:
+            self._score_reasons.append("Contradictory trend vectors significantly reduce model confidence.")
+
+
+    # ---------------------------------------------------------
+    # COMPONENT BUILDERS (Internal)
+    # ---------------------------------------------------------
+    
+    def _compute_component(self, flat_data: dict[str, Any], keys: list[str], pos_kw: str, neg_kw: str, name: str) -> ScoreBreakdown:
+        """Extracts and evaluates a standard sub-component using base framework tools."""
+        raw = self._extract_metric(flat_data, keys, 50.0)
+        bonus, penalty = 0.0, 0.0
+        
+        if self._contains_keyword(flat_data, keys, [pos_kw, "true", "yes", "high", "strong", "aligned"]):
+            bonus = 10.0
+            self._positive_log.append(f"Strong/Positive {name} validated.")
+            
+        if self._contains_keyword(flat_data, keys, [neg_kw, "false", "no", "low", "weak", "divergent", "choppy"]):
+            penalty = 12.0
+            self._negative_log.append(f"Weak/Negative {name} detected.")
+            
+        final = self._normalize(raw + bonus - penalty)
+        
+        return ScoreBreakdown(
+            raw_score=round(raw, 2),
+            normalized_score=round(raw, 2),
+            weighted_score=0.0, 
+            penalty=round(penalty, 2),
+            bonus=round(bonus, 2),
+            final_score=round(final, 2)
+        )
+        
+    def _compute_inverse_component(self, flat_data: dict[str, Any], keys: list[str], pos_kw: str, neg_kw: str, name: str) -> ScoreBreakdown:
+        """
+        Extracts and evaluates an inversely correlated component (e.g., Exhaustion).
+        High raw input means High Risk. Component final score maps High Risk to Low Score (Safe = 100).
+        """
+        raw_risk = self._extract_metric(flat_data, keys, 20.0)
+        inverted_raw = self._normalize(100.0 - raw_risk)
+        
+        bonus, penalty = 0.0, 0.0
+        
+        # If it contains "low/none" (pos_kw), risk is low, safety gets a bonus
+        if self._contains_keyword(flat_data, keys, [pos_kw, "false", "no", "low", "none"]):
+            bonus = 10.0
+            self._positive_log.append(f"Low risk regarding {name} validated.")
+            
+        # If it contains "high/extreme" (neg_kw), risk is high, safety takes a penalty
+        if self._contains_keyword(flat_data, keys, [neg_kw, "true", "yes", "high", "extreme", "fade"]):
+            penalty = 15.0
+            self._negative_log.append(f"High risk regarding {name} detected.")
+            
+        final = self._normalize(inverted_raw + bonus - penalty)
+        
+        return ScoreBreakdown(
+            raw_score=round(inverted_raw, 2),
+            normalized_score=round(inverted_raw, 2),
+            weighted_score=0.0, 
+            penalty=round(penalty, 2),
+            bonus=round(bonus, 2),
+            final_score=round(final, 2)
         )
 
-        # 3. Independent Models
-        acceleration = self._calc_acceleration(df)
-        persistence = self._calc_persistence(df, trend_age_bars)
-        quality = self._calc_quality(df)
-        risk = self._calc_risk(df, analyzer, trend_age_bars)
-
-        # Generate Internal Rich Evidence (15+ Items)
-        internal_evidence = [
-            {"category": "Kinematics", "value": f"Acceleration: {acceleration}", "polarity": 1 if "Bullish" in acceleration else -1 if "Bearish" in acceleration else 0, "reliability": 0.9},
-            {"category": "Survival", "value": f"Kaplan-Meier S(t): {persistence:.1f}%", "polarity": 1 if persistence > 50 else -1, "reliability": 0.85},
-            {"category": "Quality", "value": f"VWAP Efficiency: {quality['vwap_efficiency']:.1f}", "polarity": 1 if quality['vwap_efficiency'] > 50 else -1, "reliability": 0.95},
-            {"category": "Risk", "value": f"Amihud Illiquidity factored into Risk ({risk:.1f}%)", "polarity": -1 if risk > 50 else 1, "reliability": 0.9},
-            {"category": "Structure", "value": f"Structural Age: {trend_age_bars} bars", "polarity": 0, "reliability": 1.0}
-        ]
-        all_evidence = analyzer_evidence + internal_evidence
-
-        # 4. Bayesian Posterior & Entropy
-        posterior_prob = self._calculate_bayesian_posterior(all_evidence)
-        trend_score = posterior_prob 
-        
-        entropy_penalty = self._calculate_entropy_penalty(all_evidence)
-        base_confidence = np.mean([e.get('reliability', 0.85) for e in all_evidence]) * 100.0 if all_evidence else 50.0
-        trend_confidence = np.clip(base_confidence * (1.0 - entropy_penalty), 0.0, 100.0)
-
-        # 5. Conviction Matrix
-        inst_part = analyzer.get('advanced_metrics', {}).get('institutional_participation', 50.0)
-        conviction = {
-            "institutional_conviction": np.clip((posterior_prob * 0.5) + (inst_part * 0.5), 0, 100),
-            "participation_score": inst_part,
-            "reliability_index": quality['trend_noise'] * 0.5 + quality['trend_smoothness'] * 0.5,
-            "consistency_score": persistence
-        }
-
-        # 6. Health Model
-        health_score = (quality['composite_quality'] * 0.6) + ((100 - risk) * 0.4)
-        struct_int = np.clip(100.0 - (analyzer.get('exhaustion', {}).get('score', 0.0)), 0, 100)
-        
-        health_status = "Strong" if health_score > 80 else "Healthy" if health_score > 60 else "Weakening" if health_score > 40 else "Exhausted"
-        
-        health = {
-            "status": health_status,
-            "trend_age_bars": int(trend_age_bars),
-            "trend_maturity": np.clip((trend_age_bars / 30.0) * 100.0, 0, 100),
-            "structural_integrity": struct_int,
-            "market_structure_quality": quality['composite_quality']
-        }
-
-        # 7. HMM Probability Tree
-        tree = self._generate_hmm_tree(posterior_prob, quality)
-
-        # 8. Confidence Interval (95% CI for the Trend Score)
-        # Assuming variance is proportional to entropy penalty
-        std_err = entropy_penalty * 20.0  
-        z_score = 1.96 # 1.96 for 95% CI
-        ci_lower = max(0.0, trend_score - (z_score * std_err))
-        ci_upper = min(100.0, trend_score + (z_score * std_err))
-
-        # 9. Grading & Summary
-        rating = "Avoid"
-        for th, val in sorted(self.config["thresholds"]["rating"].items(), reverse=True):
-            if trend_score >= th: rating = val; break
-            
-        inst_grade = "Weak"
-        for th, val in sorted(self.config["thresholds"]["conviction_grade"].items(), reverse=True):
-            if conviction["institutional_conviction"] >= th: inst_grade = val; break
-
-        summary = {
-            "overall": f"Trend is {health_status} with an institutional grade of {inst_grade} ({rating}).",
-            "drivers": [e.get('value', '') for e in all_evidence if e.get('polarity', 0) > 0][:3],
-            "weakness": [e.get('value', '') for e in all_evidence if e.get('polarity', 0) < 0][:2],
-            "risk_factors": [f"Composite Risk: {risk:.1f}%", f"Trend Maturity: {health['trend_maturity']:.1f}%", f"Amihud Illiquidity Checked"],
-            "confidence_context": f"95% CI: [{ci_lower:.1f}, {ci_upper:.1f}]. Base confidence {trend_confidence:.1f}% (Entropy Penalty: {entropy_penalty*100:.1f}%).",
-            "institutional_opinion": f"Conviction stands at {conviction['institutional_conviction']:.1f}%. HMM Continuation Prob: {tree['strong_continuation']}%. Driven by Hierarchical Bayesian fusion."
-        }
-
+    def _build_fallback(self, trace: PipelineTrace) -> dict[str, Any]:
+        """Provides a safe, deterministic failover state."""
         return {
-            "trend_score": round(trend_score, 2),
-            "trend_rating": rating,
-            "trend_confidence": round(trend_confidence, 2),
-            "trend_strength": round(analyzer.get('strength', {}).get('score', 0.0), 2),
-            "trend_persistence": round(persistence, 2),
-            "trend_acceleration": acceleration,
-            "trend_risk": round(risk, 2),
-            "quality": quality,
-            "health": health,
-            "conviction": conviction,
-            "probabilities": tree,
-            "evidence": all_evidence,
-            "summary": summary
+            "status": asdict(OutputStatus(status="FAILED", quality="INVALID")),
+            "scores": {
+                "overall_trend_score": 50.0, 
+                "trend_rating": "Neutral", 
+                "confidence": 0.0,
+                "trend_strength_score": 50.0,
+                "trend_quality_score": 50.0,
+                "trend_continuation_score": 50.0,
+                "trend_exhaustion_score": 50.0,
+                "multi_timeframe_alignment_score": 50.0,
+                "bayesian_fusion_score": 50.0,
+                "hmm_continuation_probability": 50.0,
+                "trend_reliability": 0.0
+            },
+            "components": {},
+            "evidence_graph": asdict(EvidenceGraph()),
+            "explanations": {"reasons": ["Fatal execution error. Defaulted to neutral state."]},
+            "trace": asdict(trace),
+            "engine_signature": {
+                "profile": self.config.profile_name,
+                "engine_version": self.config.version,
+                "schema_version": self.config.schema_version,
+                "api_version": self.config.api_version
+            }
         }
+
+
+# =====================================================================
+# PUBLIC API
+# =====================================================================
+def calculate_trend_score(trend_json: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Public API endpoint to calculate the institutional trend score.
+    
+    Args:
+        trend_json: The dictionary payload from Layer-2 Trend Analyzer.
+        
+    Returns:
+        A JSON-compatible dictionary containing deterministic institutional scores.
+    """
+    engine = TrendEngine()
+    return engine.calculate(trend_json)

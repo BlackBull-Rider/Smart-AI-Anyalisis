@@ -28,7 +28,7 @@ from backend.decision.base_decision_engine import (
     DecisionStatusEnum,
     WarningSeverityEnum,
     DecisionTrace,
-    DecisionEvidence,
+    EvidenceGraph,
     DecisionStatus
 )
 
@@ -180,9 +180,6 @@ class StopLossEngine(BaseDecisionEngine):
 
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_stoploss_profile())
-
-    def evaluate(self, engine_outputs: dict[str, Any] | None) -> dict[str, Any]:
-        return self.evaluate_stoploss(engine_outputs)
 
     def evaluate_stoploss(self, engine_outputs: dict[str, Any] | None) -> dict[str, Any]:
         start_time = time.perf_counter()
