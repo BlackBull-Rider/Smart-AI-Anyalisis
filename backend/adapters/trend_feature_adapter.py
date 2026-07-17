@@ -8,6 +8,9 @@ financial_data into TrendAnalyzer compatible dataframe.
 """
 
 from __future__ import annotations
+import warnings
+from pandas.errors import PerformanceWarning
+warnings.simplefilter("ignore", PerformanceWarning)
 
 import logging
 

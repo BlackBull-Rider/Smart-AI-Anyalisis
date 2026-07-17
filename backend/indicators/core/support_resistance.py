@@ -503,10 +503,36 @@ def demark_support(data: pd.DataFrame, offset: int = 0, fillna: Any = None) -> p
 # SWING & BREAKOUT FUNCTIONS
 # ==============================================================================
 
+_SWING_CACHE = {}
+
+
 def _get_swings(data: pd.DataFrame, length: int) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+
+    key = (id(data), length)
+
+    if key in _SWING_CACHE:
+        return _SWING_CACHE[key]
+
     o, h, l, c, idx = _extract_ohlc(data)
+
+    if len(h) < (length * 2 + 1):
+        nan = pd.Series(float("nan"), index=idx)
+        result = (nan, nan, nan, nan)
+        _SWING_CACHE[key] = result
+        return result
+
     sh, sl, lsh, lsl = _swing_levels_jit(h, l, length, length)
-    return (pd.Series(sh, index=idx), pd.Series(sl, index=idx), pd.Series(lsh, index=idx), pd.Series(lsl, index=idx))
+
+    result = (
+        pd.Series(sh, index=idx),
+        pd.Series(sl, index=idx),
+        pd.Series(lsh, index=idx),
+        pd.Series(lsl, index=idx),
+    )
+
+    _SWING_CACHE[key] = result
+
+    return result
 
 def swing_high(data: pd.DataFrame, length: int = DEFAULT_SWING_LEN, offset: int = 0, fillna: Any = None) -> pd.Series:
     return _finalize_output(_get_swings(data, length)[0], offset, fillna)

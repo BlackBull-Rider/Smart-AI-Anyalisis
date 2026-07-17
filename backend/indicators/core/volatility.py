@@ -661,12 +661,15 @@ def bb_squeeze_momentum(data: pd.DataFrame, length: int = DEFAULT_BB_LEN, offset
     weights = (6 * weights - 2 * (length + 1)) / (length * (length + 1))
     
     s_filled = pd.Series(val).ffill().bfill().to_numpy()
-    mom = np.convolve(s_filled, weights[::-1], mode='valid')
-    
+
     out_mom = np.full(len(val), np.nan)
-    out_mom[length - 1:] = mom
+
+    if len(s_filled) >= length:
+        mom = np.convolve(s_filled, weights[::-1], mode="valid")
+        out_mom[length - 1:length - 1 + len(mom)] = mom
+
     out_mom[np.isnan(val)] = np.nan
-    
+
     out = pd.Series(out_mom, index=df.index, name=f"SQZ_MOM_{length}")
     return _finalize_output(out, offset, fillna)
 
