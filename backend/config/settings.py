@@ -407,7 +407,7 @@ class ProviderConfig:
 
     provider_name: str = _env_str(
         "PROVIDER_NAME",
-        "YahooFinance",
+        "Yahoo",
     )
 
     timeout: float = _env_float(

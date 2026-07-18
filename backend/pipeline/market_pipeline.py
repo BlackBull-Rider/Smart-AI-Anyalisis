@@ -1,941 +1,462 @@
 """
-GREEN BULL RIDER V6 - Institutional-grade AI Stock Analysis Platform
+GREEN BULL RIDER V6
 Module: backend/pipeline/market_pipeline.py
-Description: Enterprise Production Pipeline Layer.
-             Orchestrates the data flow from Providers to Database Write.
-             Strictly handles synchronization, validation, transactions,
-             telemetry, audit, and fault tolerance. 
-             Provides a robust foundation for Indicator -> AI Pipeline layers.
-             Python 3.13 Compatible. Compile-Safe. Runtime-Safe. Production Locked.
+
+Enterprise Market Data Orchestrator
+Python 3.13 Compatible
 """
 
-import os
+from __future__ import annotations
+
+import logging
 import time
-import datetime
-import uuid
-import random
-import contextlib
-import threading
-import zlib
-from enum import Enum, auto
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from dataclasses import dataclass, field
-from types import MappingProxyType
-from typing import Any, Dict, List, Optional, Type, Callable, Generator, Mapping
-from contextvars import ContextVar
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from threading import Event, Lock
+from typing import Any, Callable, Dict, List, Optional
 
-# -----------------------------------------------------------------------------
-# Internal Dependencies
-# -----------------------------------------------------------------------------
+import pandas as pd
+
 from backend.config.settings import settings
-from backend.core.logger import AppLogger
-from backend.core.trace import TraceEngine, trace_span, SpanKind
-from backend.core.audit import AuditEngine as CoreAudit, AuditAction, AuditSeverity
+from backend.providers.provider_manager import provider_manager
+from backend.repository.stock_repository import repository
 
-class AuditEngine:
-    @staticmethod
-    def record_event(operation: str, action: AuditAction, severity: AuditSeverity, message: str, metadata: dict = None) -> None:
+
+@dataclass(frozen=True)
+class TaskMetrics:
+    """Enhanced Telemetry for individual synchronization tasks."""
+    task_name: str
+    status: str
+    provider_latency_ms: float
+    db_latency_ms: float
+    total_elapsed_ms: float
+    records_processed: int
+    error: str | None = None
+
+
+@dataclass
+class SymbolSyncResult:
+    """Aggregate synchronization results for a single symbol."""
+    symbol: str
+    success: bool
+    is_incremental: bool
+    start_time: datetime
+    end_time: datetime
+    metrics: list[TaskMetrics] = field(default_factory=list)
+    error_summary: str | None = None
+
+
+@dataclass
+class SyncReport:
+    """Executive summary of a batch synchronization execution."""
+    sync_type: str
+    start_time: datetime
+    end_time: datetime
+    total_symbols: int
+    successful: int
+    failed: int
+    cancelled: bool
+    failed_symbols: list[str]
+    total_elapsed_sec: float
+
+
+class MarketPipeline:
+    """
+    Enterprise Data Synchronization Pipeline.
+    Orchestrates data fetching, pre-DB validation, transaction-safe persistence, 
+    UI callbacks, and AI Pipeline queueing.
+    """
+
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Config-driven provider selection
+        provider_name = settings.provider.provider_name
+        self._provider = provider_manager.get(provider_name)
+        
+        self._cancel_event = Event()
+        self._executor: ThreadPoolExecutor | None = None
+        self._lock = Lock()
+
+        self.max_workers = settings.performance.max_workers
+        self.history_days = settings.sync.history_days
+        self.max_retries = settings.provider.max_retries
+        self.retry_backoff = settings.provider.retry_backoff
+
+    def __enter__(self) -> MarketPipeline:
+        self._cancel_event.clear()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.shutdown()
+
+    def shutdown(self) -> None:
+        """Gracefully terminate pipeline execution."""
+        self.logger.warning("Pipeline shutdown initiated. Cancelling pending tasks...")
+        self._cancel_event.set()
+        with self._lock:
+            if self._executor is not None:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+                self._executor = None
+        self.logger.info("Pipeline shutdown complete.")
+
+    def run(self, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        if settings.sync.incremental_sync:
+            return self.incremental_sync(progress_callback)
+        return self.full_sync(progress_callback)
+
+    def incremental_sync(self, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        self.logger.info("Starting Incremental Sync for active universe.")
+        return self._execute_universe(sync_type="INCREMENTAL", is_incremental=True, progress_callback=progress_callback)
+
+    def full_sync(self, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        self.logger.info("Starting Full Sync for active universe.")
+        return self._execute_universe(sync_type="FULL", is_incremental=False, progress_callback=progress_callback)
+
+    def _execute_universe(self, sync_type: str, is_incremental: bool, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        symbols_data = repository.get_active_symbols()
+        if not symbols_data:
+            self.logger.warning("No active symbols found in repository.")
+            return SyncReport(sync_type, datetime.now(), datetime.now(), 0, 0, 0, False, [], 0.0)
+
+        symbols = [s["symbol"] for s in symbols_data if "symbol" in s]
+        return self.run_batch(symbols, is_incremental, sync_type, progress_callback)
+
+    def run_batch(self, symbols: list[str], is_incremental: bool = True, sync_type: str = "BATCH", progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        """Execute synchronization across a batch of symbols with thread-pool and persistent resume capability."""
+        start_time = datetime.now()
+        total_symbols = len(symbols)
+        successful_symbols = set()
+        failed_symbols = set(symbols)
+
+        self.logger.info(f"Starting {sync_type} execution for {total_symbols} symbols. Workers: {self.max_workers}")
+        self._cancel_event.clear()
+
+        attempts = 0
+        max_attempts = self.max_retries + 1
+
+        with self._lock:
+            self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+
+        while attempts < max_attempts and failed_symbols and not self._cancel_event.is_set():
+            attempts += 1
+            if attempts > 1:
+                delay = self.retry_backoff ** (attempts - 1)
+                self.logger.warning(f"Batch retry attempt {attempts}/{max_attempts}. Sleeping {delay}s...")
+                time.sleep(delay)
+
+            current_batch = list(failed_symbols)
+            futures: dict[Future, str] = {}
+
+            with self._lock:
+                if self._executor is None:
+                    break
+                for symbol in current_batch:
+                    future = self._executor.submit(self.run_symbol, symbol, is_incremental)
+                    futures[future] = symbol
+
+            processed_in_attempt = 0
+
+            for future in as_completed(futures):
+                if self._cancel_event.is_set():
+                    break
+
+                symbol = futures[future]
+                processed_in_attempt += 1
+                try:
+                    result: SymbolSyncResult = future.result()
+                    if result.success:
+                        successful_symbols.add(symbol)
+                        failed_symbols.remove(symbol)
+                        self._enqueue_for_ai(symbol)  # Pipeline decoupling
+                        self.logger.info(f"[{symbol}] Sync completed successfully.")
+                    else:
+                        self.logger.error(f"[{symbol}] Sync failed: {result.error_summary}")
+                        self._log_failed_queue(symbol, result.error_summary) # Persistent failure queue
+                except Exception as e:
+                    self.logger.error(f"[{symbol}] Catastrophic worker failure: {e}", exc_info=True)
+                    self._log_failed_queue(symbol, str(e))
+
+                # Trigger UI Callback
+                if progress_callback:
+                    total_processed = len(successful_symbols) + (len(symbols) - len(failed_symbols))
+                    progress_callback(total_processed, total_symbols, symbol)
+
+        end_time = datetime.now()
+        elapsed = (end_time - start_time).total_seconds()
+
+        report = SyncReport(
+            sync_type=sync_type,
+            start_time=start_time,
+            end_time=end_time,
+            total_symbols=total_symbols,
+            successful=len(successful_symbols),
+            failed=len(failed_symbols),
+            cancelled=self._cancel_event.is_set(),
+            failed_symbols=list(failed_symbols),
+            total_elapsed_sec=round(elapsed, 2)
+        )
+
+        self._log_audit_summary(report)
+        return report
+
+    def run_symbol(self, symbol: str, is_incremental: bool = True) -> SymbolSyncResult:
+        """Isolated synchronization execution handling transactional integrity per symbol."""
+        start_time = datetime.now()
+        metrics: list[TaskMetrics] = []
+        success = True
+        error_summary = None
+
+        if self._cancel_event.is_set():
+            return SymbolSyncResult(symbol, False, is_incremental, start_time, datetime.now(), metrics, "Cancelled")
+
         try:
-            if severity in (AuditSeverity.CRITICAL, AuditSeverity.WARNING):
-                if hasattr(CoreAudit, 'record_failure'):
-                    CoreAudit.record_failure(operation=operation, action=action, message=message, severity=severity, metadata=metadata)
+            metrics.append(self._sync_history(symbol, is_incremental))
+            
+            datasets = [
+                ("profile", self._provider.get_company_info, "save_company_profile"),
+                ("fundamentals", self._provider.get_fundamentals, "save_fundamental"),
+                ("financials", self._provider.get_financials, "save_financials"),
+                ("actions", self._provider.get_actions, "save_corporate_actions"),
+                ("shareholders", getattr(self._provider, "get_shareholders", getattr(self._provider, "get_share_holders", None)), "save_shareholding"),
+                ("earnings", self._provider.get_earnings, "save_earnings"),
+                ("recommendations", self._provider.get_recommendations, "save_analyst_data"),
+            ]
+
+            for task_name, fetch_func, save_func_name in datasets:
+                if self._cancel_event.is_set():
+                    break
+                if fetch_func is None:
+                    continue
+                
+                metric = self._execute_task(symbol, task_name, fetch_func, save_func_name)
+                metrics.append(metric)
+                if metric.status == "ERROR":
+                    success = False
+
+        except Exception as e:
+            self.logger.exception(f"[{symbol}] Unhandled exception during symbol sync: {e}")
+            success = False
+            error_summary = str(e)
+
+        if not success and not error_summary:
+            error_summary = "One or more datasets failed to synchronize."
+
+        return SymbolSyncResult(symbol, success, is_incremental, start_time, datetime.now(), metrics, error_summary)
+
+    def _sync_history(self, symbol: str, is_incremental: bool) -> TaskMetrics:
+        """Handles time-series historical data with Pre-DB validation and exact telemetry."""
+        task_start = time.perf_counter()
+        provider_latency = 0.0
+        db_latency = 0.0
+        records = 0
+        status = "SUCCESS"
+        error_msg = None
+
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=self.history_days)
+
+            if is_incremental:
+                last_date_str = repository.get_last_history_date(symbol)
+                if last_date_str:
+                    try:
+                        last_date = pd.to_datetime(last_date_str).to_pydatetime()
+                        if last_date.date() >= end_date.date():
+                            elapsed = (time.perf_counter() - task_start) * 1000
+                            return TaskMetrics("history", "SKIPPED", 0.0, 0.0, round(elapsed, 2), 0, "Up to date")
+                        start_date = last_date + timedelta(days=1)
+                    except Exception:
+                        pass
+
+            fetch_start = time.perf_counter()
+            df = self._provider.get_history(symbol=symbol, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
+            provider_latency = (time.perf_counter() - fetch_start) * 1000
+
+            if df is not None and not df.empty:
+                # Pre-DB Normalization & Validation
+                df = df.drop_duplicates(subset=['date'], keep='last')
+                df = df.sort_values('date')
+                df = df.dropna(subset=['close', 'volume'])
+                
+                if "symbol" not in df.columns:
+                    df.insert(0, "symbol", symbol)
+                
+                records = len(df)
+                
+                db_start = time.perf_counter()
+                repository.save_history(df)
+                db_latency = (time.perf_counter() - db_start) * 1000
             else:
-                if hasattr(CoreAudit, 'record_success'):
-                    CoreAudit.record_success(operation=operation, action=action, message=message, metadata=metadata)
+                status = "EMPTY"
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_msg = f"{type(e).__name__}: {e}"
+            status = "ERROR"
+            self.logger.error(f"[{symbol}] History sync failure: {e}")
+
+        total_elapsed = (time.perf_counter() - task_start) * 1000
+        return TaskMetrics("history", status, round(provider_latency, 2), round(db_latency, 2), round(total_elapsed, 2), records, error_msg)
+
+    def _execute_task(self, symbol: str, task_name: str, fetch_func: Callable, save_method_name: str) -> TaskMetrics:
+        """Generic transaction wrapper handling normalization and repository injection."""
+        task_start = time.perf_counter()
+        provider_latency = 0.0
+        db_latency = 0.0
+        records = 0
+        status = "SUCCESS"
+        error_msg = None
+
+        try:
+            fetch_start = time.perf_counter()
+            data = fetch_func(symbol)
+            provider_latency = (time.perf_counter() - fetch_start) * 1000
+
+            if data is None:
+                status = "EMPTY"
+
+            elif isinstance(data, pd.DataFrame):
+                if data.empty:
+                    status = "EMPTY"
+                else:
+                    db_start = time.perf_counter()
+                    records = self._persist_data(symbol, save_method_name, data)
+                    db_latency = (time.perf_counter() - db_start) * 1000
+
+            elif isinstance(data, (list, tuple, dict)):
+                if len(data) == 0:
+                    status = "EMPTY"
+                else:
+                    db_start = time.perf_counter()
+                    records = self._persist_data(symbol, save_method_name, data)
+                    db_latency = (time.perf_counter() - db_start) * 1000
+
+            else:
+                db_start = time.perf_counter()
+                records = self._persist_data(symbol, save_method_name, data)
+                db_latency = (time.perf_counter() - db_start) * 1000
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_msg = f"{type(e).__name__}: {e}"
+            status = "ERROR"
+
+        total_elapsed = (time.perf_counter() - task_start) * 1000
+        return TaskMetrics(task_name, status, round(provider_latency, 2), round(db_latency, 2), round(total_elapsed, 2), records, error_msg)
+
+    def _persist_data(self, symbol: str, method_name: str, data: Any) -> int:
+        """Routes data to the repository and ensures 'symbol' key is present."""
+        if data is None:
+            return 0
+
+        if isinstance(data, pd.DataFrame):
+            if data.empty:
+                return 0
+        elif isinstance(data, (list, tuple, dict)):
+            if len(data) == 0:
+                return 0
+
+        method = getattr(repository, method_name, None)
+        records_saved = 0
+
+        if isinstance(data, dict):
+            if "symbol" not in data:
+                data["symbol"] = symbol
+            if method:
+                method(data)
+                records_saved = 1
+            elif hasattr(repository, "bulk_insert"):
+                table_map = {
+                    "save_financials": "financial_data",
+                    "save_corporate_actions": "corporate_actions",
+                    "save_shareholding": "shareholding_data",
+                    "save_earnings": "earnings_history",
+                    "save_analyst_data": "analyst_data",
+                }
+                table_name = table_map.get(
+                    method_name,
+                    method_name.replace("save_", "")
+                )
+                repository.bulk_insert(table_name, [data])
+                records_saved = 1
+
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and "symbol" not in item:
+                    item["symbol"] = symbol
+            if hasattr(repository, "bulk_insert"):
+                table_map = {
+                    "save_financials": "financial_data",
+                    "save_corporate_actions": "corporate_actions",
+                    "save_shareholding": "shareholding_data",
+                    "save_earnings": "earnings_history",
+                    "save_analyst_data": "analyst_data",
+                }
+                table_name = table_map.get(
+                    method_name,
+                    method_name.replace("save_", "")
+                )
+                repository.bulk_insert(table_name, data)
+                records_saved = len(data)
+            elif method:
+                for item in data:
+                    method(item)
+                records_saved = len(data)
+
+        elif isinstance(data, pd.DataFrame):
+            if "symbol" not in data.columns:
+                data.insert(0, "symbol", symbol)
+            if method:
+                method(data)
+                records_saved = len(data)
+
+        return records_saved
+
+    def _enqueue_for_ai(self, symbol: str) -> None:
+        """Decouples Data Pipeline from AI Pipeline by pushing to a status queue."""
+        try:
+            payload = {
+                "symbol": symbol,
+                "stage": "DATA_PIPELINE",
+                "status": "PENDING_FEATURE_ENGINE",
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if hasattr(repository, "bulk_insert"):
+                repository.bulk_insert("pipeline_queue", [payload])
+        except Exception as e:
+            self.logger.error(f"[{symbol}] Failed to enqueue for AI pipeline: {e}")
+
+    def _log_failed_queue(self, symbol: str, error: str | None) -> None:
+        """Persists failed symbols so they can be resumed after a crash."""
+        try:
+            payload = {
+                "symbol": symbol,
+                "stage": "DATA_PIPELINE",
+                "status": "FAILED",
+                "error_log": error,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if hasattr(repository, "bulk_insert"):
+                repository.bulk_insert("pipeline_queue", [payload])
         except Exception:
             pass
 
-from backend.core.metrics import metrics_engine
-from backend.core.scheduler import Scheduler
-from backend.core.event_bus import EventBus, Event, Event
-from backend.core.exceptions import (
-    ValidationError, 
-    ProviderError, 
-    DatabaseError,
-    PipelineError, 
-    RetryableError, 
-    FatalError
-)
-
-from backend.database.connection import DatabaseSession
-from backend.database.unit_of_work import UnitOfWork
-from backend.data.market_reader import MarketReader
-from backend.data.market_writer import MarketWriter
-from backend.data.market_validator import MarketValidator
-from backend.data.providers.yfinance import YahooFinanceProvider, YahooFinanceConfig
-from backend.data.providers.nse import NSEProvider, NSEConfig
-
-
-# -----------------------------------------------------------------------------
-# ENUMS
-# -----------------------------------------------------------------------------
-class PipelineState(Enum):
-    PENDING = auto()
-    INITIALIZING = auto()
-    RUNNING = auto()
-    RETRYING = auto()
-    SUCCESS = auto()
-    FAILED = auto()
-    CANCELLED = auto()
-
-class PipelineStage(Enum):
-    BOOTSTRAP = auto()
-    INCREMENTAL_CHECK = auto()
-    PROVIDER_FETCH = auto()
-    VALIDATION = auto()
-    COMPRESSION = auto()
-    DATABASE_WRITE = auto()
-    COMMIT = auto()
-    ROLLBACK = auto()
-
-
-# -----------------------------------------------------------------------------
-# DATACLASSES & IMMUTABLE EVENTS
-# -----------------------------------------------------------------------------
-    symbols: Optional[List[str]] = None
-    timeframe: str = "1D"
-    exchange: str = "NSE"
-    provider_name: str = field(default_factory=lambda: getattr(settings.provider, "default", "nse"))
-    batch_size: int = 50
-    retry_max_attempts: int = 5
-    retry_backoff_factor: float = 2.0
-
-
-@dataclass
-class PipelineConfig:
-    start_date: str
-    end_date: str
-    symbols: Optional[List[str]] = None
-    timeframe: str = "1D"
-    exchange: str = "NSE"
-    provider_name: str = field(
-        default_factory=lambda: getattr(settings.provider, "default", "nse")
-    )
-    batch_size: int = 50
-    retry_max_attempts: int = 5
-    retry_backoff_factor: float = 2.0
-
-@dataclass
-class ValidationResult:
-    valid_records: List[Dict[str, Any]]
-    invalid_records: List[Dict[str, Any]]
-    warnings: List[str]
-    duplicates: int
-
-@dataclass
-class PipelineStatistics:
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
-    execution_count: int = 0
-    success_count: int = 0
-    failure_count: int = 0
-    retry_count: int = 0
-    provider_latency: float = 0.0
-    reader_latency: float = 0.0
-    validator_latency: float = 0.0
-    writer_latency: float = 0.0
-    db_latency: float = 0.0
-    pipeline_latency: float = 0.0
-    records_read: int = 0
-    records_valid: int = 0
-    records_invalid: int = 0
-    records_written: int = 0
-
-    def increment(self, metric: str, amount: int = 1) -> None:
-        with self._lock:
-            current = getattr(self, metric)
-            setattr(self, metric, current + amount)
-
-    def add_latency(self, metric: str, amount: float) -> None:
-        with self._lock:
-            current = getattr(self, metric)
-            setattr(self, metric, current + amount)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Safely serializes statistics avoiding lock serialization issues."""
-        with self._lock:
-            return {
-                "execution_count": self.execution_count,
-                "success_count": self.success_count,
-                "failure_count": self.failure_count,
-                "retry_count": self.retry_count,
-                "provider_latency": self.provider_latency,
-                "reader_latency": self.reader_latency,
-                "validator_latency": self.validator_latency,
-                "writer_latency": self.writer_latency,
-                "db_latency": self.db_latency,
-                "pipeline_latency": self.pipeline_latency,
-                "records_read": self.records_read,
-                "records_valid": self.records_valid,
-                "records_invalid": self.records_invalid,
-                "records_written": self.records_written
-            }
-
-@dataclass
-class PipelineSummary:
-    pipeline_id: str
-    execution_id: str
-    total_processed: int
-    successful: int
-    failed: int
-    success_symbols: List[str]
-    failed_symbols: List[str]
-    retry_symbols: List[str]
-    execution_time: float
-    statistics: Dict[str, Any]
-    timestamp: datetime.datetime = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-
-@dataclass
-class PipelineContext:
-    pipeline_id: str
-    execution_id: str
-    trace_id: str
-    config: PipelineConfig
-    stats: PipelineStatistics
-    start_time: float
-    state: PipelineState
-    success_symbols: List[str] = field(default_factory=list)
-    failed_symbols: List[str] = field(default_factory=list)
-    retry_symbols: List[str] = field(default_factory=list)
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
-
-    def mark_success(self, symbols: List[str]) -> None:
-        with self._lock:
-            self.success_symbols.extend(symbols)
-
-    def mark_failed(self, symbols: List[str]) -> None:
-        with self._lock:
-            self.failed_symbols.extend(symbols)
-
-    def mark_retry(self, symbols: List[str]) -> None:
-        with self._lock:
-            self.retry_symbols.extend(symbols)
-
-@dataclass
-class PipelineResult:
-    context: PipelineContext
-    success: bool
-    errors: List[Exception] = field(default_factory=list)
-    summary: Optional[PipelineSummary] = None
-
-
-# -----------------------------------------------------------------------------
-# CONTEXT VARIABLES
-# -----------------------------------------------------------------------------
-pipeline_context_var: ContextVar[PipelineContext] = ContextVar("pipeline_context")
-
-
-# -----------------------------------------------------------------------------
-# REGISTRIES & SERVICES
-# -----------------------------------------------------------------------------
-class ProviderRegistry:
-    """Registry for dynamic provider instantiation and extension."""
-    _providers: Dict[str, Any] = {}
-
-    @classmethod
-    def register(cls, name: str, provider_instance: Any) -> None:
-        cls._providers[name] = provider_instance
-
-    @classmethod
-    def get(cls, name: str) -> Optional[Any]:
-        return cls._providers.get(name)
-
-    @classmethod
-    def get_all(cls) -> Dict[str, Any]:
-        return cls._providers
-
-
-class CompressionService:
-    """Service to handle automated compression hooks configured via schema mappings."""
-    def compress_fields(self, records: List[Dict[str, Any]], fields_to_compress: List[str]) -> List[Dict[str, Any]]:
-        for record in records:
-            for field_name in fields_to_compress:
-                if record.get(field_name):
-                    compressed_key = f"{field_name}_compressed"
-                    record[compressed_key] = zlib.compress(str(record[field_name]).encode('utf-8'))
-        return records
-
-
-# -----------------------------------------------------------------------------
-# PIPELINE OBSERVABILITY & HEALTH
-# -----------------------------------------------------------------------------
-class PipelineMonitor:
-    def __init__(self, event_bus: EventBus):
-        self.event_bus = event_bus
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def _get_labels(self, context: PipelineContext) -> Dict[str, str]:
-        return {
-            "provider": context.config.provider_name,
-            "timeframe": context.config.timeframe,
-            "module": "market_pipeline"
-        }
-
-    def log_stage(self, context: PipelineContext, stage: PipelineStage) -> None:
-        context.state = PipelineState.RUNNING
-        self.logger.info(f"Transitioning to Stage: {stage.name} [Exec ID: {context.execution_id}]")
-        AuditEngine.record_event(
-            operation=stage.name, action=AuditAction.SYSTEM, severity=AuditSeverity.INFO,
-            message=f"Pipeline entering stage: {stage.name}",
-            metadata={"execution_id": context.execution_id, "trace_id": context.trace_id}
+    def _log_audit_summary(self, report: SyncReport) -> None:
+        header = f"=== PIPELINE AUDIT: {report.sync_type} ==="
+        metrics = (
+            f"Elapsed Time : {report.total_elapsed_sec}s\n"
+            f"Total Symbols: {report.total_symbols}\n"
+            f"Successful   : {report.successful}\n"
+            f"Failed       : {report.failed}\n"
+            f"Cancelled    : {report.cancelled}"
         )
-        self.event_bus.publish(Event(
-            name="PipelineStageChanged", source="market_pipeline", 
-            payload=MappingProxyType({"stage": stage.name, "execution_id": context.execution_id})
-        ))
-
-    def log_success(self, context: PipelineContext) -> None:
-        context.state = PipelineState.SUCCESS
-        labels = self._get_labels(context)
-        metrics_engine.increment("pipeline.success_count")
-        metrics_engine.record_latency("pipeline.pipeline_latency", "pipeline", context.stats.pipeline_latency)
-        
-        self.logger.info(f"Pipeline Completed Successfully [Exec ID: {context.execution_id}]")
-        AuditEngine.record_event(
-            operation="Pipeline Finish", action=AuditAction.SYSTEM, severity=AuditSeverity.INFO,
-            message="Pipeline executed successfully",
-            metadata={"execution_id": context.execution_id, "records_written": context.stats.records_written}
-        )
-        self.event_bus.publish(Event(
-            name="PipelineCompleted", source="market_pipeline", 
-            payload=MappingProxyType({"execution_id": context.execution_id, "metrics": context.stats.to_dict()})
-        ))
-
-    def log_failure(self, context: PipelineContext, error: Exception) -> None:
-        context.state = PipelineState.FAILED
-        labels = self._get_labels(context)
-        metrics_engine.increment("pipeline.failure_count")
-        
-        self.logger.error(f"Pipeline Failed: {str(error)} [Exec ID: {context.execution_id}]")
-        AuditEngine.record_event(
-            operation="Pipeline Failure", action=AuditAction.SYSTEM, severity=AuditSeverity.CRITICAL,
-            message=f"Pipeline failed with fatal error: {str(error)}",
-            metadata={"execution_id": context.execution_id, "trace_id": context.trace_id}
-        )
-        self.event_bus.publish(Event(
-            name="PipelineFailed", source="market_pipeline", 
-            payload=MappingProxyType({"error": str(error), "execution_id": context.execution_id})
-        ))
-
-
-class PipelineHooks:
-    def __init__(self, monitor: PipelineMonitor):
-        self.monitor = monitor
-
-    def pre_start(self, context: PipelineContext) -> None:
-        self.monitor.log_stage(context, PipelineStage.BOOTSTRAP)
-
-    def post_finish(self, context: PipelineContext) -> None:
-        self.monitor.log_success(context)
-
-    def on_error(self, context: PipelineContext, error: Exception) -> None:
-        self.monitor.log_failure(context, error)
-
-
-class PipelineHealth:
-    def __init__(self, db_session_cls: Type[DatabaseSession]):
-        self.db_session_cls = db_session_cls
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def check_components(self) -> bool:
-        try:
-            with self.db_session_cls() as session:
-                session.db.execute("SELECT 1")
-        except Exception as e:
-            self.logger.error(f"Database Health Check Failed: {e}")
-            return False
-
-        for name, provider in ProviderRegistry.get_all().items():
-            if hasattr(provider, "supports_health_check") and provider.supports_health_check():
-                if hasattr(provider, "health_check") and not provider.health_check():
-                    self.logger.error(f"Provider Health Check Failed: {name}")
-                    return False
-
-        return True
-
-
-class PipelineBootstrap:
-    def __init__(self, health_checker: PipelineHealth):
-        self.health_checker = health_checker
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def verify_readiness(self) -> bool:
-        self.logger.info("Verifying pipeline component readiness...")
-        if not self.health_checker.check_components():
-            self.logger.critical("Pipeline Bootstrap Failed. Core components degraded.")
-            raise FatalError("Pipeline components failed health check during bootstrap phase.")
-        self.logger.info("Pipeline Bootstrap Successful. Components verified.")
-        return True
-
-
-# -----------------------------------------------------------------------------
-# ERROR HANDLING & RETRY ENGINE
-# -----------------------------------------------------------------------------
-class PipelineErrorHandler:
-    def __init__(self, event_bus: EventBus):
-        self.event_bus = event_bus
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def handle(self, error: Exception, context: PipelineContext) -> None:
-        TraceEngine.record_exception(error)
-        
-        if isinstance(error, ValidationError):
-            context.stats.increment("records_invalid")
-            AuditEngine.record_event(
-                operation="Validation Error", action=AuditAction.SYSTEM, severity=AuditSeverity.WARNING,
-                message=str(error), metadata={"execution_id": context.execution_id}
-            )
-        elif isinstance(error, DatabaseError):
-            context.stats.increment("failure_count")
-            AuditEngine.record_event(
-                operation="Database Error", action=AuditAction.SYSTEM, severity=AuditSeverity.CRITICAL,
-                message=str(error), metadata={"execution_id": context.execution_id}
-            )
-            self.event_bus.publish(Event(
-                "DatabaseRollbackTriggered", 
-                MappingProxyType({"execution_id": context.execution_id, "error": str(error)})
-            ))
-        elif isinstance(error, ProviderError):
-            context.stats.increment("failure_count")
-            AuditEngine.record_event(
-                operation="Provider Error", action=AuditAction.SYSTEM, severity=AuditSeverity.WARNING,
-                message=str(error), metadata={"execution_id": context.execution_id}
-            )
+        if report.cancelled:
+            self.logger.warning(header + "\n" + metrics)
+        elif report.failed > 0:
+            self.logger.error(header + "\n" + metrics + f"\nFailed Assets: {report.failed_symbols}")
         else:
-            AuditEngine.record_event(
-                operation="Unknown Pipeline Error", action=AuditAction.SYSTEM, severity=AuditSeverity.CRITICAL,
-                message=str(error), metadata={"execution_id": context.execution_id}
-            )
-        self.logger.error(f"Pipeline Error Handler invoked for: {type(error).__name__} - {str(error)}")
-
-
-class PipelineRetryPolicy:
-    def __init__(self, monitor: PipelineMonitor):
-        self.monitor = monitor
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def execute_with_retry(self, action: Callable, context: PipelineContext, batch: List[str], *args: Any, **kwargs: Any) -> Any:
-        max_retries = context.config.retry_max_attempts
-        backoff_factor = context.config.retry_backoff_factor
-        retries = 0
-        
-        while True:
-            try:
-                return action(*args, **kwargs)
-            except (RetryableError, ProviderError, DatabaseError) as e:
-                retries += 1
-                if retries > max_retries:
-                    self.logger.error(f"Exhausted {max_retries} retries for batch execution_id {context.execution_id}.")
-                    context.mark_failed(batch)
-                    raise PipelineError(f"Operation failed after {retries} retries.") from e
-                
-                context.state = PipelineState.RETRYING
-                context.stats.increment("retry_count")
-                context.mark_retry(batch)
-                
-                self.logger.warning(f"Retrying (Attempt {retries}) due to: {str(e)}")
-                AuditEngine.record_event(
-                    operation="Pipeline Retry", action=AuditAction.SYSTEM, severity=AuditSeverity.WARNING,
-                    message="Retrying pipeline stage", metadata={"execution_id": context.execution_id, "attempt": retries}
-                )
-                
-                sleep_time = (backoff_factor ** retries) + random.uniform(0, 1)
-                time.sleep(sleep_time)
-
-
-# -----------------------------------------------------------------------------
-# LIFECYCLE & EXECUTION ENGINE
-# -----------------------------------------------------------------------------
-class PipelineLifecycle:
-    def __init__(self, hooks: PipelineHooks):
-        self.hooks = hooks
-
-    @contextlib.contextmanager
-    def manage(self, config: PipelineConfig) -> Generator[PipelineContext, None, None]:
-        pipeline_id = str(uuid.uuid4())
-        execution_id = str(uuid.uuid4())
-        trace_id = str(uuid.uuid4())
-        
-        context = PipelineContext(
-            pipeline_id=pipeline_id,
-            execution_id=execution_id,
-            trace_id=trace_id,
-            config=config,
-            stats=PipelineStatistics(),
-            start_time=time.perf_counter(),
-            state=PipelineState.INITIALIZING
-        )
-        token = pipeline_context_var.set(context)
-        
-        metrics_engine.increment("pipeline.execution_count")
-        AuditEngine.record_event(
-            operation="Pipeline Start", action=AuditAction.SYSTEM, severity=AuditSeverity.INFO,
-            message="Pipeline context created and executing.", metadata={"execution_id": execution_id}
-        )
-        
-        self.hooks.pre_start(context)
-        try:
-            yield context
-            context.stats.pipeline_latency = time.perf_counter() - context.start_time
-            self.hooks.post_finish(context)
-        except Exception as e:
-            context.stats.pipeline_latency = time.perf_counter() - context.start_time
-            self.hooks.on_error(context, e)
-            raise
-        finally:
-            pipeline_context_var.reset(token)
-
-
-class PipelineExecutor:
-    def __init__(self,
-                 reader: MarketReader,
-                 validator: MarketValidator,
-                 writer: MarketWriter,
-                 uow: UnitOfWork,
-                 monitor: PipelineMonitor,
-                 event_bus: EventBus,
-                 compression_service: CompressionService):
-        self.reader = reader
-        self.validator = validator
-        self.writer = writer
-        self.uow = uow
-        self.monitor = monitor
-        self.event_bus = event_bus
-        self.compression_service = compression_service
-        self.logger = AppLogger(self.__class__.__name__)
-
-    @trace_span(operation="executor.process_batch", component="pipeline", kind=SpanKind.INTERNAL)
-    def process_batch(self, context: PipelineContext, batch: List[str]) -> None:
-        self.logger.info(f"Initiating pipeline execution for batch of {len(batch)} symbols. [Exec ID: {context.execution_id}]")
-
-        # -------------------------------------------------------
-        # STAGE 1: Database Read (Incremental Sync Check Map)
-        # -------------------------------------------------------
-        self.monitor.log_stage(context, PipelineStage.INCREMENTAL_CHECK)
-        t_reader = time.perf_counter()
-
-        since_map: Dict[str, str] = {sym: context.config.start_date for sym in batch}
-        if hasattr(self.reader, 'read_latest_batch'):
-            latest_records = self.reader.read_latest_batch(
-                table_name="market_data",
-                symbols=batch,
-                ts_col="timestamp"
-            )
-            if latest_records:
-                for rec in latest_records:
-                    sym = rec.get("symbol")
-                    ts = rec.get("timestamp")
-                    if sym and ts:
-                        since_map[sym] = max(context.config.start_date, str(ts))
-
-        context.stats.add_latency("reader_latency", time.perf_counter() - t_reader)
-
-        # -------------------------------------------------------
-        # STAGE 2: Provider Batch Fetch (With Smart Auto-Discovery)
-        # -------------------------------------------------------
-        self.monitor.log_stage(context, PipelineStage.PROVIDER_FETCH)
-        provider = ProviderRegistry.get(context.config.provider_name)
-        if not provider:
-            raise ProviderError(f"Data provider '{context.config.provider_name}' is not securely registered in ProviderRegistry.")
-
-        t_provider = time.perf_counter()
-        raw_data = []
-
-        if hasattr(provider, 'fetch_batch'):
-            print("=" * 80)
-            print("USING FETCH_BATCH")
-            print(provider.__class__.__name__)
-            print("=" * 80)
-            raw_data = provider.fetch_batch(
-                symbols=batch,
-                since_map=since_map,
-                end_date=context.config.end_date,
-                timeframe=context.config.timeframe
-            )
-        else:
-            self.logger.info(f"Provider {context.config.provider_name} does not support fetch_batch. Falling back to sequential smart fetch.")
-            import inspect
-            
-            # Auto-discover the exact fetch method name in the provider class
-            method_names = ['fetch_market_data', 'fetch_data', 'get_historical_data', 'get_history', 'equity_history', 'history', 'get_data', 'fetch']
-            fetch_func = None
-            for name in method_names:
-                # Blacklist specific methods that are not for single-symbol fetch
-                if name in ['download_equity_bhavcopy', 'download_bhavcopy', 'upload_data']:
-                    continue
-                if hasattr(provider, name):
-                    fetch_func = getattr(provider, name)
-                    break
-            
-            if not fetch_func:
-                public_methods = [m for m in dir(provider) if callable(getattr(provider, m)) and not m.startswith('_') and m not in ['ping', 'health_check', 'supports_health_check']]
-                fetch_func = getattr(provider, public_methods[0]) if public_methods else None
-
-            for sym in batch:
-                start_dt = since_map.get(sym, context.config.start_date)
-                try:
-                    if fetch_func:
-                        print("="*80)
-                        print("FETCH METHOD:", fetch_func.__qualname__)
-                        print("FETCH MODULE:", fetch_func.__module__)
-                        print("="*80)
-                        sig = inspect.signature(fetch_func)
-                        kwargs = {}
-                        if 'symbol' in sig.parameters: kwargs['symbol'] = sym
-                        elif 'ticker' in sig.parameters: kwargs['ticker'] = sym
-
-                        if 'start_date' in sig.parameters: kwargs['start_date'] = start_dt
-                        elif 'from_date' in sig.parameters: kwargs['from_date'] = start_dt
-                        elif 'start' in sig.parameters: kwargs['start'] = start_dt
-                        elif 'date_val' in sig.parameters: kwargs['date_val'] = start_dt
-                        elif 'date' in sig.parameters: kwargs['date'] = start_dt
-
-                        if 'end_date' in sig.parameters: kwargs['end_date'] = context.config.end_date
-                        elif 'to_date' in sig.parameters: kwargs['to_date'] = context.config.end_date
-                        elif 'end' in sig.parameters: kwargs['end'] = context.config.end_date
-
-                        data = fetch_func(**kwargs)
-                        print("="*80)
-                        print("FETCH DEBUG")
-                        print("symbol =", sym)
-                        print("type   =", type(data))
-                        try:
-                            print(data.head())
-                        except Exception:
-                            print(data)
-                        print("="*80)
-                        if data:
-                            if isinstance(data, list):
-                                raw_data.extend(data)
-                            else:
-                                raw_data.append(data)
-                    else:
-                        self.logger.error(f"No valid fetch method found in {provider.__class__.__name__}")
-                except Exception as ex:
-                    import traceback
-                    print("=" * 80)
-                    print("FETCH FAILED")
-                    print("symbol =", sym)
-                    traceback.print_exc()
-                    print("=" * 80)
-                    self.logger.error(f"Failed to fetch {sym} from provider: {ex}")
-
-        context.stats.add_latency("provider_latency", time.perf_counter() - t_provider)
-
-        if not raw_data:
-            self.logger.warning(f"No new market data retrieved from provider for batch. [Exec ID: {context.execution_id}]")
-            context.mark_success(batch)
-            return
-
-        # -------------------------------------------------------
-        # STAGE 3: Validation
-        # -------------------------------------------------------
-        self.monitor.log_stage(context, PipelineStage.VALIDATION)
-        t_validator = time.perf_counter()
-
-        if hasattr(self.validator, 'validate_batch'):
-            validation_result = self.validator.validate_batch(raw_data)
-            valid_records = validation_result.valid_records
-            invalid_count = len(validation_result.invalid_records)
-        else:
-            valid_records = self.validator.validate(raw_data)
-            invalid_count = len(raw_data) - len(valid_records)
-
-        context.stats.add_latency("validator_latency", time.perf_counter() - t_validator)
-
-        context.stats.increment("records_valid", len(valid_records))
-        context.stats.increment("records_invalid", invalid_count)
-        
-        event_payload = MappingProxyType({"batch_size": len(batch), "valid_count": len(valid_records)})
-        if hasattr(self.event_bus, 'publish_async'):
-            self.event_bus.publish_async(Event("ValidationCompleted", "market_pipeline", event_payload))
-        else:
-            self.event_bus.publish(Event("ValidationCompleted", "market_pipeline", event_payload))
-
-        if not valid_records:
-            raise ValidationError("Data validation failed entirely for the batch. No valid records advanced.")
-
-        # -------------------------------------------------------
-        # STAGE 4: Compression Hook
-        # -------------------------------------------------------
-        self.monitor.log_stage(context, PipelineStage.COMPRESSION)
-        valid_records = self.compression_service.compress_fields(valid_records, fields_to_compress=["summary", "reasoning", "explanation"])
-
-        # -------------------------------------------------------
-        # STAGE 5: Database Write (UnitOfWork fully managed here)
-        # -------------------------------------------------------
-        self.monitor.log_stage(context, PipelineStage.DATABASE_WRITE)
-        t_writer = time.perf_counter()
-
-        try:
-            with self.uow:
-                self.writer.write_market_data(valid_records)
-                self.monitor.log_stage(context, PipelineStage.COMMIT)
-        except Exception as e:
-            self.monitor.log_stage(context, PipelineStage.ROLLBACK)
-            raise DatabaseError(f"Database persistence sequence failed for batch. Error: {str(e)}") from e
-
-        db_lat = time.perf_counter() - t_writer
-        context.stats.add_latency("writer_latency", db_lat)
-        context.stats.add_latency("db_latency", db_lat)
-        context.stats.increment("records_written", len(valid_records))
-
-        context.mark_success(batch)
-        
-        write_payload = MappingProxyType({"records_written": len(valid_records), "execution_id": context.execution_id})
-        if hasattr(self.event_bus, 'publish_async'):
-            self.event_bus.publish_async(Event("WriteCompleted", "market_pipeline", write_payload))
-        else:
-            self.event_bus.publish(Event("WriteCompleted", "market_pipeline", write_payload))
-            
-        self.logger.info(f"Pipeline execution completed flawlessly for batch. [Exec ID: {context.execution_id}]")
-
-
-class PipelineCoordinator:
-    def __init__(self, 
-                 executor: PipelineExecutor, 
-                 retry_policy: PipelineRetryPolicy, 
-                 error_handler: PipelineErrorHandler):
-        self.executor = executor
-        self.retry_policy = retry_policy
-        self.error_handler = error_handler
-        self.logger = AppLogger(self.__class__.__name__)
-
-    @trace_span(operation="coordinator.run_parallel", component="pipeline", kind=SpanKind.INTERNAL)
-    def run_parallel(self, context: PipelineContext) -> PipelineResult:
-        symbols = context.config.symbols
-        batch_size = context.config.batch_size
-        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
-        
-        cpu_count = os.cpu_count() or 4
-        optimal_workers = 1  # Forced to 1 for SQLite stability on Termux
-        
-        self.logger.info(f"Coordinating parallel processing: {len(symbols)} symbols into {len(batches)} batches using {optimal_workers} workers.")
-        errors: List[Exception] = []
-        
-        for batch in batches:
-            try:
-                self._execute_batch_with_retry(context, batch)
-            except Exception as e:
-                self.logger.error(f"Batch coordination failed: {e}")
-                errors.append(e)
-                self.error_handler.handle(e, context)
-
-        success = len(errors) == 0
-        summary = PipelineSummary(
-            pipeline_id=context.pipeline_id,
-            execution_id=context.execution_id,
-            total_processed=len(symbols),
-            successful=len(context.success_symbols),
-            failed=len(context.failed_symbols),
-            success_symbols=context.success_symbols,
-            failed_symbols=context.failed_symbols,
-            retry_symbols=context.retry_symbols,
-            execution_time=time.perf_counter() - context.start_time,
-            statistics=context.stats.to_dict()
-        )
-
-        return PipelineResult(
-            context=context,
-            success=success,
-            errors=errors,
-            summary=summary
-        )
-
-    def _execute_batch_with_retry(self, context: PipelineContext, batch: List[str]) -> None:
-        def _action():
-            self.executor.process_batch(context, batch)
-            
-        self.retry_policy.execute_with_retry(action=_action, context=context, batch=batch)
-
-
-# -----------------------------------------------------------------------------
-# PIPELINE ADVANCED SCHEDULER & RUNNER
-# -----------------------------------------------------------------------------
-class PipelineRunner:
-    def __init__(self,
-                 coordinator: PipelineCoordinator,
-                 lifecycle: PipelineLifecycle,
-                 bootstrap: PipelineBootstrap,
-                 scheduler: Type[Scheduler],
-                 event_bus: EventBus):
-        self.coordinator = coordinator
-        self.lifecycle = lifecycle
-        self.bootstrap = bootstrap
-        self.scheduler = scheduler
-        self.event_bus = event_bus
-        self.logger = AppLogger(self.__class__.__name__)
-
-    def run(self, config: PipelineConfig) -> PipelineResult:
-        self.logger.info("PipelineRunner Execution Sequence Initiated.")
-        self.event_bus.publish(Event(name="PipelineStarted", source="market_pipeline", payload= MappingProxyType({"config": config.__dict__})))
-        
-        self.bootstrap.verify_readiness()
-
-        # -------------------------------------------------------
-        # AUTO LOAD ACTIVE NSE UNIVERSE
-        # -------------------------------------------------------
-        if config.symbols is None:
-            with DatabaseSession() as session:
-                rows = session.db.fetch_all(
-                    """
-                    SELECT symbol
-                    FROM stock_master
-                    WHERE COALESCE(is_active, 1) = 1
-                    ORDER BY symbol
-                    """,
-
-                )
-
-            config.symbols = [
-                row["symbol"] if hasattr(row, "keys") else row[0]
-                for row in rows
-            ]
-
-            self.logger.info(
-                f"Loaded {len(config.symbols)} active symbols from equity_master."
-            )
-
-        with self.lifecycle.manage(config) as context:
-            result = self.coordinator.run_parallel(context)
-            
-        self.event_bus.publish(Event(name="PipelineCompleted", source="market_pipeline", payload= MappingProxyType({"status": "SUCCESS" if result.success else "FAILED"})))
-        self.logger.info("PipelineRunner Sequence Concluded.")
-        return result
-
-    def schedule_market_close(self, config: PipelineConfig) -> None:
-        """Triggers pipeline explicitly utilizing strictly mapped configuration or fallbacks."""
-        cron_expr = getattr(settings.scheduler, "market_close", "45 15 * * 1-5")
-        self.logger.info(f"Registering Market Close Trigger via cron: {cron_expr}")
-        self.scheduler.add_job(self.run, args=(config,), cron=cron_expr, skip_holidays=True)
-
-    def schedule_recovery(self, config: PipelineConfig) -> None:
-        """Registers a fallback recovery pipeline designed for off-peak hours."""
-        cron_expr = getattr(settings.scheduler, "market_recovery", "00 02 * * 2-6")
-        self.logger.info(f"Registering Recovery Job via cron: {cron_expr}")
-        self.scheduler.add_job(self.run, args=(config,), cron=cron_expr, skip_holidays=False)
-
-
-# -----------------------------------------------------------------------------
-# ENTERPRISE FACTORY
-# -----------------------------------------------------------------------------
-class PipelineFactory:
-    @classmethod
-    def create_production_pipeline(cls) -> PipelineRunner:
-        import os
-        # Force Absolute Path for Termux Compatibility
-        db_abs = os.path.abspath("database/universe.db")
-        db_url = f"sqlite:///{db_abs}"
-        
-        try:
-            from backend.data.providers.nse import NSEConfig
-            nse_cfg = NSEConfig(db_path=db_abs)
-        except Exception:
-            nse_cfg = None
-
-        try:
-            from backend.data.providers.yfinance import YahooFinanceConfig
-            yf_cfg = YahooFinanceConfig()
-        except Exception:
-            yf_cfg = None
-
-        try:
-            from backend.data.market_reader import ReaderConfig
-            reader_cfg = ReaderConfig(db_url=db_url)
-        except Exception:
-            reader_cfg = None
-
-        try:
-            from backend.data.market_writer import WriterConfig
-            writer_cfg = WriterConfig(db_url=db_url)
-        except Exception:
-            writer_cfg = None
-
-        ProviderRegistry.register("nse", NSEProvider(nse_cfg) if nse_cfg else NSEProvider())
-        ProviderRegistry.register("yfinance", YahooFinanceProvider(yf_cfg) if yf_cfg else YahooFinanceProvider())
-        
-        event_bus = EventBus()
-        scheduler = Scheduler()
-        
-        reader = MarketReader(reader_cfg) if reader_cfg else MarketReader()
-        writer = MarketWriter(writer_cfg) if writer_cfg else MarketWriter()
-        validator = MarketValidator()
-        uow = UnitOfWork()
-        compression_service = CompressionService()
-        
-        health_checker = PipelineHealth(db_session_cls=DatabaseSession)
-        bootstrap = PipelineBootstrap(health_checker=health_checker)
-        
-        monitor = PipelineMonitor(event_bus=event_bus)
-        hooks = PipelineHooks(monitor=monitor)
-        lifecycle = PipelineLifecycle(hooks=hooks)
-        
-        error_handler = PipelineErrorHandler(event_bus=event_bus)
-        retry_policy = PipelineRetryPolicy(monitor=monitor)
-        
-        executor = PipelineExecutor(
-            reader=reader,
-            validator=validator,
-            writer=writer,
-            uow=uow,
-            monitor=monitor,
-            event_bus=event_bus,
-            compression_service=compression_service
-        )
-        
-        coordinator = PipelineCoordinator(
-            executor=executor,
-            retry_policy=retry_policy,
-            error_handler=error_handler
-        )
-        
-        return PipelineRunner(
-            coordinator=coordinator,
-            lifecycle=lifecycle,
-            bootstrap=bootstrap,
-            scheduler=scheduler,
-            event_bus=event_bus
-        )
-
-# -----------------------------------------------------------------------------
-# ENTRY POINT
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    import datetime
-    from backend.data.market_sync import MarketSync
-
-    print("🌐 Auto Model: Syncing Latest NSE Universe...")
-    # ১. পাইপলাইন চালুর আগেই সিস্টেম নিজে থেকে লেটেস্ট সিম্বল ডাটাবেসে আপডেট করে নেবে
-    try:
-        sync_engine = MarketSync()
-        sync_engine.sync_universe()
-    except Exception as e:
-        print(f"⚠️ Universe Sync Error: {e}")
-
-    pipeline = PipelineFactory.create_production_pipeline()
-
-    config = PipelineConfig(
-        start_date="2000-01-01",
-        end_date=datetime.date.today().isoformat(),
-        timeframe="1D",
-        exchange="yfinance",  # <-- NSE এর বদলে yfinance (বা YAHOO) দিন, নাহলে Bhavcopy ক্র্যাশ করবে
-        symbols=None,         # ডাটাবেস থেকে অটোমেটিক ২৩৮২টা স্টক লোড হবে
-        batch_size=50,
-        provider_name="yfinance"
-    )
-
-    print(f"🚀 Starting Full Sync for all symbols (Since 2000)...")
-    
-    # OS লেভেলে Thread ব্লক করা (যাতে Termux Segfault না দেয়)
-    import os
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
-    os.environ['OMP_NUM_THREADS'] = '1'
-
-    result = pipeline.run(config)
-
-    print("=" * 60)
-    print("FULL SYNC COMPLETED")
-    print("=" * 60)
-    print(f"Success : {result.success}")
-    if hasattr(result, 'summary') and result.summary:
-        print(f"Processed : {result.summary.total_processed}")
+            self.logger.info(header + "\n" + metrics)

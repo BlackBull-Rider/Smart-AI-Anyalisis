@@ -122,11 +122,17 @@ class StockRepository:
         if dataframe.empty:
             return
 
-        dataframe.to_sql(
+        
+        df = dataframe.copy()
+
+        if "date" in df.columns:
+            df["date"] = df["date"].astype(str)
+
+        rows = df.to_dict("records")
+
+        self.bulk_insert(
             "historical_data",
-            db.connect(),
-            if_exists="append",
-            index=False,
+            rows,
         )
 
     # =====================================================================
@@ -207,12 +213,45 @@ class StockRepository:
         data: dict,
     ) -> None:
 
-        columns = ",".join(data.keys())
+        allowed = {
+            "symbol",
+            "market_cap",
+            "pe",
+            "pb",
+            "roe",
+            "roce",
+            "debt_equity",
+            "sales_growth",
+            "profit_growth",
+            "promoter_holding",
+            "institutional_holding",
+            "fii_holding",
+            "dii_holding",
+            "updated_at",
+            "dividend_yield",
+            "sector",
+            "industry",
+            "eps",
+            "book_value",
+            "current_ratio",
+            "quick_ratio",
+            "operating_margin",
+            "net_margin",
+            "cash",
+            "free_cash_flow",
+            "enterprise_value",
+            "beta",
+            "week52_high",
+            "week52_low",
+            "target_price",
+            "recommendation",
+            "shares_outstanding",
+        }
 
-        placeholders = ",".join(
-            "?"
-            for _ in data
-        )
+        data = {k: v for k, v in data.items() if k in allowed}
+
+        columns = ",".join(data.keys())
+        placeholders = ",".join("?" for _ in data)
 
         db.execute(
             f"""
@@ -250,7 +289,7 @@ class StockRepository:
 
         values = [
             tuple(
-                row[col]
+                row.get(col)
                 for col in columns
             )
             for row in rows
@@ -261,6 +300,67 @@ class StockRepository:
             values,
         )
 
+
+
+    # =====================================================================
+    # Financial Data
+    # =====================================================================
+
+    def save_financials(self, rows: list[dict]) -> None:
+        self.bulk_insert("financial_data", rows)
+
+    # =====================================================================
+    # Corporate Actions
+    # =====================================================================
+
+    def save_corporate_actions(self, rows: list[dict]) -> None:
+        self.bulk_insert("corporate_actions", rows)
+
+    # =====================================================================
+    # Shareholding
+    # =====================================================================
+
+    def save_shareholding(self, rows) -> None:
+        if rows is None:
+            return
+
+        if isinstance(rows, dict):
+            rows = [rows]
+
+        if not isinstance(rows, list):
+            rows = list(rows)
+
+        if not rows:
+            return
+
+        self.bulk_insert("shareholding_data", rows)
+
+    # =====================================================================
+    # Earnings
+    # =====================================================================
+
+    def save_earnings(self, rows: list[dict]) -> None:
+        self.bulk_insert("earnings_history", rows)
+
+    # =====================================================================
+    # Analyst Data
+    # =====================================================================
+
+    def save_analyst_data(self, data: dict) -> None:
+
+        columns = ",".join(data.keys())
+        placeholders = ",".join("?" for _ in data)
+
+        db.execute(
+            f"""
+            INSERT OR REPLACE
+            INTO analyst_data
+            ({columns})
+            VALUES
+            ({placeholders})
+            """,
+            tuple(data.values()),
+        )
 
 repository = StockRepository()
 

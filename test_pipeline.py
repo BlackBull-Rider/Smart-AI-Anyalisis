@@ -1,46 +1,41 @@
-import pandas as pd
-import json
+import logging
+from backend.pipeline.orchestrator import InstitutionalPipeline
 
-# তোর লোকাল মডিউলগুলো ইম্পোর্ট কর (পাথগুলো তোর প্রজেক্ট অনুযায়ী মিলিয়ে নিস)
-from backend.data.data_fetcher import DataFetcher  # <-- তোর আসল লোকাল ফেচার
-from backend.analyzers.trend_analyzer import TrendAnalyzer
-from backend.engines.trend_engine import TrendEngine
+# লগিং সেটআপ যাতে টার্মিনালে আউটপুট দেখতে পান
+logging.basicConfig(level=logging.INFO)
 
-def run_real_database_test():
-    print("🚀 [LAYER 1] Fetching REAL Data from YOUR LOCAL DATABASE...")
-    
-    # তোর ডেটা ফেচার ইনিশিয়ালাইজ কর
-    fetcher = DataFetcher()
-    
-    # তোর ডাটাবেস থেকে রিয়েল স্টকের ডেটা টান (ধর SEDEMAC বা RELIANCE)
-    # Note: তোর ফেচারের মেথডের আসল নাম যেটা (যেমন fetch_data বা get_historical_data), সেটা এখানে দিস।
-    df = fetcher.fetch_data("SEDEMAC") 
-    
-    if df is None or df.empty:
-        print("❌ [CRITICAL] ডেটাবেস থেকে কোনো ডেটা আসেনি! তোর DataFetcher চেক কর।")
-        return
-        
-    print(f"✅ Layer 1 Ready! Loaded {len(df)} rows from Database.")
+# ডামি ডেটা তৈরি
+dummy_l4_stock = {
+    "symbol": "RELIANCE",
+    "market_permission": "ALLOWED",
+    "conviction_score": 85.0,
+    "confidence_score": 90.0,
+    "overall_risk": 30.0,
+    "reward_quality": 80.0,
+    "entry_action": "EXECUTE",
+    "entry_quality": 88.0,
+    "holding_type": "COMPOUND",
+    "trend_score": 82.0,
+    "institutional_score": 88.0,
+    "fundamental_score": 92.0,
+    "regime_score": 75.0,
+    "recommendation": "STRONG_BUY"
+}
 
-    print("\n🧠 [LAYER 2] Running TrendAnalyzer (Extracting Raw Signals)...")
-    analyzer = TrendAnalyzer()
-    
-    try:
-        l2_output = analyzer.analyze(df)
-        print(f"✅ Layer 2 Generated: {len(l2_output.get('direction', {}).get('evidence', []))} Directional Evidences.")
-    except Exception as e:
-        print(f"❌ [CRITICAL] Layer 2 CRASHED: {e}")
-        return
+dummy_portfolio = [] # আপাতত ফাঁকা পোর্টফোলিও
+macro_data = {"regime_score": 75.0, "market_state": "BULL", "systemic_risk": 20.0}
 
-    print("\n⚡ [LAYER 3] Running TrendEngine V3.0 (Institutional Bayesian Scoring)...")
-    engine = TrendEngine()
-    
-    try:
-        final_output = engine.generate_score(l2_output, df)
-        print("\n🎯 [FINAL OUTPUT] Proof of Execution:\n")
-        print(json.dumps(final_output, indent=4))
-    except Exception as e:
-        print(f"❌ [CRITICAL] Layer 3 CRASHED: {e}")
-
+# পাইপলাইন রান করানো
 if __name__ == "__main__":
-    run_real_database_test()
+    print("Starting Pipeline Test...\n" + "-"*40)
+    orchestrator = InstitutionalPipeline()
+    result = orchestrator.execute_market_scan(
+        universe_l4_data=[dummy_l4_stock], 
+        current_portfolio=dummy_portfolio, 
+        available_cash_pct=100.0,
+        market_macro_data=macro_data
+    )
+    
+    print("\n--- Final Dashboard Payload ---")
+    import json
+    print(json.dumps(result["dashboard"], indent=2))
