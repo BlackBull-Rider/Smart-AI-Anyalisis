@@ -1,0 +1,84 @@
+"""
+GREEN BULL RIDER V6
+Module: backend/providers/base_provider.py
+
+Base Provider Interface
+
+Python 3.13 Compatible
+"""
+
+from __future__ import annotations
+
+from abc import ABC
+from abc import abstractmethod
+
+import pandas as pd
+
+
+class BaseProvider(ABC):
+
+    """
+    Abstract Market Data Provider.
+    """
+
+    @abstractmethod
+    def get_history(
+        self,
+        symbol: str,
+        start_date=None,
+        end_date=None,
+    ) -> pd.DataFrame:
+        """
+        Return OHLCV history.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_company_info(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_fundamentals(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_financials(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_actions(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_share_holders(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_earnings(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_recommendations(
+        self,
+        symbol: str,
+    ) -> dict:
+        raise NotImplementedError
+
