@@ -54,10 +54,16 @@ def run(symbol: str) -> pd.DataFrame:
 
     # Wrapper to enforce strict index alignment on returning series
     def align(series, name=None):
-        if series is None: return pd.Series(index=df.index, dtype='float64')
-        if isinstance(series, pd.DataFrame): return series
-        s = pd.Series(series, index=df.index)
-        if name: s.name = name
+        if series is None:
+            return pd.Series(index=df.index, dtype="float64")
+        if isinstance(series, pd.DataFrame):
+            return series.reindex(df.index)
+        if isinstance(series, pd.Series):
+            s = series.reindex(df.index)
+        else:
+            s = pd.Series(series, index=df.index)
+        if name:
+            s.name = name
         return s
 
     # ==========================
@@ -359,7 +365,10 @@ def run(symbol: str) -> pd.DataFrame:
     pat = pattern.calculate_patterns(df)
     pat.columns = [c.upper() for c in pat.columns]
     cols_to_use = pat.columns.difference(features.columns)
-    features = features.join(pat[cols_to_use])
+    pat = pat.loc[~pat.index.isna()]
+    pat = pat.loc[~pat.index.duplicated(keep="last")]
+    pat = pat.reindex(features.index)
+    features = features.join(pat[cols_to_use], how="left")
 
     # ==========================
     # SUPPORT & RESISTANCE
@@ -725,4 +734,17 @@ def run(symbol: str) -> pd.DataFrame:
     # Reset Index to match standard output format
     
 
+    features = features.loc[~features.index.isna()].copy()
+    features = features.loc[~features.index.duplicated(keep="last")]
+    features.sort_index(inplace=True)
+    features["date"] = features.index
     return features
+
+def build_features(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """
+    Pipeline Adapter
+    """
+    raise NotImplementedError(
+        "Indicator Engine currently supports run(symbol). "
+        "Pipeline adapter should inject dataframe before DB layer."
+    )
