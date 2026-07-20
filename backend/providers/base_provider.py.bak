@@ -3,15 +3,23 @@ GREEN BULL RIDER V6
 Module: backend/providers/base_provider.py
 
 Base Provider Interface
+
+Python 3.13 Compatible
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
+
 import pandas as pd
 
 
 class BaseProvider(ABC):
+
+    """
+    Abstract Market Data Provider.
+    """
 
     @abstractmethod
     def get_history(
@@ -20,6 +28,9 @@ class BaseProvider(ABC):
         start_date=None,
         end_date=None,
     ) -> pd.DataFrame:
+        """
+        Return OHLCV history.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -71,9 +82,17 @@ class BaseProvider(ABC):
     ) -> dict:
         raise NotImplementedError
 
-    @abstractmethod
-    def get_universe(self) -> pd.DataFrame:
+        @abstractmethod
+    def get_universe(self):
         """
         Return market universe.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns:
+            symbol
+            company_name
+            exchange
         """
         raise NotImplementedError

@@ -32,6 +32,12 @@ from backend.providers.base_provider import BaseProvider
 
 class YahooProvider(BaseProvider):
 
+    def get_universe(self):
+        raise NotImplementedError(
+            "YahooProvider does not support get_universe(); use NSEProvider."
+        )
+
+
     def __init__(self) -> None:
         self.name = "YahooProvider"
         self.logger = logging.getLogger(self.__class__.__name__)

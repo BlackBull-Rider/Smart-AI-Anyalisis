@@ -13,6 +13,7 @@ import logging
 
 from backend.providers.base_provider import BaseProvider
 from backend.providers.yahoo_provider import YahooProvider
+from backend.providers.nse_provider import NSEProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,11 @@ class ProviderManager:
         )
 
         self._default = "yahoo"
+
+        self.register(
+             "nse",
+             NSEProvider(),
+        )
 
     # ==================================================================
     # Registry
