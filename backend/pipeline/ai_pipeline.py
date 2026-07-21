@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from backend.config.settings import settings
+from backend.repository.stock_repository import repository
 from backend.indicators import indicator_engine
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class FeaturePayload:
     """
     symbol: str
     timestamp: str
-    features: Dict[str, Any]
+    df: pd.DataFrame
 
 
 class AIPipelineQueues:
@@ -47,6 +48,7 @@ class AIPipelineQueues:
         self.score_queue: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
         self.decision_queue: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
         self.ai_queue: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
+        self.db_write_queue: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
 
 
 pipeline_queues = AIPipelineQueues()
@@ -145,19 +147,13 @@ class FeatureWorker(threading.Thread):
             self.logger.warning("Indicator engine returned empty DataFrame for %s", symbol)
             return False
 
-        latest_row: pd.Series = df.iloc[-1]
-        feature_dict: Dict[str, Any] = self._sanitize_row(latest_row, symbol)
-        
-        row_date = latest_row.get("date")
-        if pd.isna(row_date) or row_date is None:
-            row_date = pd.Timestamp.now()
-            
-        timestamp_str = row_date.isoformat() if isinstance(row_date, pd.Timestamp) else str(row_date)
+        latest_date = df.index[-1] if not df.index.empty else pd.Timestamp.now()
+        timestamp_str = latest_date.isoformat() if isinstance(latest_date, pd.Timestamp) else str(latest_date)
         
         payload = FeaturePayload(
             symbol=symbol,
             timestamp=timestamp_str,
-            features=feature_dict
+            df=df
         )
 
         try:
@@ -226,3 +222,46 @@ class FeatureLayerManager:
             worker.join()
         self.logger.info("All FeatureWorker threads joined successfully.")
 
+
+
+class DedicatedDBWriter(threading.Thread):
+    """
+    Single Dedicated Writer Thread. 
+    Listens to db_write_queue and writes MISSING DATES to the database 
+    using StockRepository without blocking the AI Workers.
+    """
+    def __init__(self, daemon: bool = True) -> None:
+        super().__init__(daemon=daemon)
+        self.input_queue = pipeline_queues.db_write_queue
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self._stop_event = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def run(self) -> None:
+        self.logger.info("DedicatedDBWriter started.")
+        
+        while not self._stop_event.is_set():
+            try:
+                task = self.input_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            if task is None:
+                self.logger.info("Sentinel received. Stopping DB Writer.")
+                self.input_queue.task_done()
+                break
+
+            task_type, payload = task
+            try:
+                if task_type == "FEATURE":
+                    inserted = repository.save_features(payload.symbol, payload.df)
+                    if inserted > 0:
+                        self.logger.info("Writer saved %d missing rows for %s to feature_history.", inserted, payload.symbol)
+            except Exception as e:
+                self.logger.error("Writer failed to save DB data for %s: %s", payload.symbol, e, exc_info=True)
+            finally:
+                self.input_queue.task_done()
+                
+        self.logger.info("DedicatedDBWriter stopped.")

@@ -1,0 +1,62 @@
+import logging
+import sys
+import time
+from pathlib import Path
+from tqdm import tqdm
+
+sys.path.append(str(Path(__file__).resolve().parent))
+
+from backend.config.settings import settings
+from backend.universe.universe_loader import UniverseLoader
+from backend.pipeline.market_pipeline import MarketPipeline
+from backend.repository.stock_repository import repository
+
+class RateLimitAlertHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.last_alert_time = 0
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        if "Rate limited" in log_entry or "Too Many Requests" in log_entry:
+            current_time = time.time()
+            if current_time - self.last_alert_time > 5:
+                tqdm.write(f" ⚠️ [API RATE LIMIT HIT] Pausing workers to cool down... ({record.getMessage()[:30]}...)")
+                self.last_alert_time = current_time
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+logger = logging.getLogger("MinimalSync")
+
+yahoo_logger = logging.getLogger("YahooProvider")
+yahoo_logger.setLevel(logging.WARNING)
+yahoo_logger.propagate = False  
+yahoo_logger.addHandler(RateLimitAlertHandler())
+logging.getLogger("MarketPipeline").setLevel(logging.ERROR)
+
+def run_pipeline_step(pipeline_func, task_name: str, symbols: list[str], is_incremental: bool = False):
+    logger.info(f"Starting: {task_name} [{len(symbols)} Symbols]")
+    with tqdm(total=len(symbols), desc=f"{task_name[:12]:<12}", unit="sym", dynamic_ncols=True) as pbar:
+        def update_progress(processed, total, current_symbol_info):
+            pbar.set_postfix_str(current_symbol_info)
+            pbar.update(1)
+        report = pipeline_func(symbols, is_incremental=is_incremental, progress_callback=update_progress)
+    logger.info(f"Done: {report.successful} Pass | {report.failed} Fail | {report.total_elapsed_sec}s\n")
+
+def run_full_database_sync():
+    print("\n" + "="*60 + "\n   GREEN BULL RIDER V6 — MASTER SYNC DASHBOARD\n" + "="*60 + "\n")
+    UniverseLoader(str(settings.database_path)).refresh()
+    symbols_data = repository.get_active_symbols()
+    all_symbols = [s["symbol"] for s in symbols_data if "symbol" in s]
+
+    with MarketPipeline() as pipeline:
+        # 🔴 Set Back to True: Now it will dynamically fetch 5 days!
+        run_pipeline_step(pipeline.run_history, "History", all_symbols, is_incremental=True) 
+        run_pipeline_step(pipeline.run_fundamentals, "Fundamentals", all_symbols, is_incremental=True)
+        run_pipeline_step(pipeline.run_financials, "Financials", all_symbols, is_incremental=True)
+        run_pipeline_step(pipeline.run_actions, "Corp Actions", all_symbols, is_incremental=True)
+        run_pipeline_step(pipeline.run_shareholders, "Shareholding", all_symbols, is_incremental=True)
+        run_pipeline_step(pipeline.run_earnings, "Earnings", all_symbols, is_incremental=True)
+        run_pipeline_step(pipeline.run_recommendations, "Consensus", all_symbols, is_incremental=True)
+
+if __name__ == "__main__":
+    run_full_database_sync()

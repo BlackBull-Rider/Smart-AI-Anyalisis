@@ -369,4 +369,67 @@ class StockRepository:
             tuple(data.values()),
         )
 
+
+    # =====================================================================
+    # AI Feature Data (Dedicated Writer Logic)
+    # =====================================================================
+
+    def get_last_feature_date(
+        self,
+        symbol: str,
+    ):
+        row = db.fetchone(
+            """
+            SELECT
+                MAX(date) AS last_date
+            FROM feature_history
+            WHERE symbol=?
+            """,
+            (
+                symbol.upper(),
+            ),
+        )
+
+        if row is None:
+            return None
+
+        return row["last_date"]
+
+    def save_features(
+        self,
+        symbol: str,
+        dataframe: pd.DataFrame,
+    ) -> int:
+        if dataframe.empty:
+            return 0
+
+        df = dataframe.copy()
+
+        if "date" not in [c.lower() for c in df.columns] and "date" in df.index.names:
+            df = df.reset_index()
+            
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ১. ডাটাবেস থেকে লাস্ট ডেট আনা
+        last_date = self.get_last_feature_date(symbol)
+
+        # ২. শুধু মিসিং (নতুন) ক্যান্ডেলগুলো ফিল্টার করা
+        if last_date:
+            df = df[df["date"] > last_date]
+
+        if df.empty:
+            return 0
+
+        rows = df.to_dict("records")
+        
+        # ৩. তোর bulk_insert ব্যবহার করে feature_history টেবিলে সেভ করা
+        self.bulk_insert(
+            "feature_history",
+            rows,
+        )
+        
+        return len(rows)
+
 repository = StockRepository()
+
