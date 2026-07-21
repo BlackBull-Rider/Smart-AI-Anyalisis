@@ -122,11 +122,18 @@ class StockRepository:
         if dataframe.empty:
             return
 
-        
         df = dataframe.copy()
 
+        # Fix: Reset index if date is not in columns
+        if "date" not in [c.lower() for c in df.columns]:
+            df = df.reset_index()
+            
+        # Fix: Normalize column names to lowercase
+        df.columns = [c.lower() for c in df.columns]
+
+        # Fix: Ensure date format
         if "date" in df.columns:
-            df["date"] = df["date"].astype(str)
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime('%Y-%m-%d %H:%M:%S')
 
         rows = df.to_dict("records")
 
@@ -363,4 +370,3 @@ class StockRepository:
         )
 
 repository = StockRepository()
-

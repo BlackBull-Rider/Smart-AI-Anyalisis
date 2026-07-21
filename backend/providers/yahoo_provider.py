@@ -303,7 +303,7 @@ class YahooProvider(BaseProvider):
         if 'date' not in df_safe.columns:
             return pd.DataFrame()
             
-        df_safe['date'] = pd.to_datetime(df_safe['date'], utc=True).dt.tz_localize(None)
+        df_safe["date"] = pd.to_datetime(df_safe["date"]).dt.tz_localize(None)
         
         required_cols = ['open', 'high', 'low', 'close']
         for col in required_cols:

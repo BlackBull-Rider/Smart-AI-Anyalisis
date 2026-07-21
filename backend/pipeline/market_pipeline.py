@@ -1,13 +1,10 @@
 """
 GREEN BULL RIDER V6
 Module: backend/pipeline/market_pipeline.py
-
 Enterprise Market Data Orchestrator
 Python 3.13 Compatible
 """
-
 from __future__ import annotations
-
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
@@ -15,18 +12,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Event, Lock
 from typing import Any, Callable, Dict, List, Optional
-
 import pandas as pd
-
 from backend.config.settings import settings
 from backend.providers.provider_manager import provider_manager
 from backend.universe.universe_loader import UniverseLoader
 from backend.repository.stock_repository import repository
 
-
 @dataclass(frozen=True)
 class TaskMetrics:
-    """Enhanced Telemetry for individual synchronization tasks."""
     task_name: str
     status: str
     provider_latency_ms: float
@@ -34,11 +27,10 @@ class TaskMetrics:
     total_elapsed_ms: float
     records_processed: int
     error: str | None = None
-
+    info: str = ""  # 🔴 New Field: To show Date Range on Terminal
 
 @dataclass
 class SymbolSyncResult:
-    """Aggregate synchronization results for a single symbol."""
     symbol: str
     success: bool
     is_incremental: bool
@@ -47,10 +39,8 @@ class SymbolSyncResult:
     metrics: list[TaskMetrics] = field(default_factory=list)
     error_summary: str | None = None
 
-
 @dataclass
 class SyncReport:
-    """Executive summary of a batch synchronization execution."""
     sync_type: str
     start_time: datetime
     end_time: datetime
@@ -61,25 +51,14 @@ class SyncReport:
     failed_symbols: list[str]
     total_elapsed_sec: float
 
-
 class MarketPipeline:
-    """
-    Enterprise Data Synchronization Pipeline.
-    Orchestrates data fetching, pre-DB validation, transaction-safe persistence, 
-    UI callbacks, and AI Pipeline queueing.
-    """
-
     def __init__(self) -> None:
         self.logger = logging.getLogger(self.__class__.__name__)
-        
-        # Config-driven provider selection
         provider_name = settings.provider.provider_name
         self._provider = provider_manager.get(provider_name)
-        
         self._cancel_event = Event()
         self._executor: ThreadPoolExecutor | None = None
         self._lock = Lock()
-
         self.max_workers = settings.performance.max_workers
         self.history_days = settings.sync.history_days
         self.max_retries = settings.provider.max_retries
@@ -93,7 +72,6 @@ class MarketPipeline:
         self.shutdown()
 
     def shutdown(self) -> None:
-        """Gracefully terminate pipeline execution."""
         self.logger.warning("Pipeline shutdown initiated. Cancelling pending tasks...")
         self._cancel_event.set()
         with self._lock:
@@ -108,45 +86,36 @@ class MarketPipeline:
         return self.full_sync(progress_callback)
 
     def incremental_sync(self, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
-        self.logger.info("Starting Incremental Sync for active universe.")
         return self._execute_universe(sync_type="INCREMENTAL", is_incremental=True, progress_callback=progress_callback)
 
     def full_sync(self, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
-        self.logger.info("Starting Full Sync for active universe.")
         return self._execute_universe(sync_type="FULL", is_incremental=False, progress_callback=progress_callback)
 
-    def _execute_universe(self, sync_type: str, is_incremental: bool, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+    def _execute_universe(self, sync_type: str, is_incremental: bool, progress_callback: Callable[[int, int, str], None] | None = None, tasks: list[str] | None = None) -> SyncReport:
         UniverseLoader("database/market.db").refresh()
         symbols_data = repository.get_active_symbols()
         if not symbols_data:
-            self.logger.warning("No active symbols found in repository.")
             return SyncReport(sync_type, datetime.now(), datetime.now(), 0, 0, 0, False, [], 0.0)
-
         symbols = [s["symbol"] for s in symbols_data if "symbol" in s]
-        return self.run_batch(symbols, is_incremental, sync_type, progress_callback)
+        return self.run_batch(symbols, is_incremental, sync_type, progress_callback, tasks)
 
-    def run_batch(self, symbols: list[str], is_incremental: bool = True, sync_type: str = "BATCH", progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
-        """Execute synchronization across a batch of symbols with thread-pool and persistent resume capability."""
+    def run_batch(self, symbols: list[str], is_incremental: bool = True, sync_type: str = "BATCH", progress_callback: Callable[[int, int, str], None] | None = None, tasks: list[str] | None = None, custom_workers: int | None = None) -> SyncReport:
         start_time = datetime.now()
         total_symbols = len(symbols)
         successful_symbols = set()
         failed_symbols = set(symbols)
-
-        self.logger.info(f"Starting {sync_type} execution for {total_symbols} symbols. Workers: {self.max_workers}")
+        workers = custom_workers if custom_workers is not None else self.max_workers
         self._cancel_event.clear()
-
         attempts = 0
         max_attempts = self.max_retries + 1
 
         with self._lock:
-            self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            self._executor = ThreadPoolExecutor(max_workers=workers)
 
         while attempts < max_attempts and failed_symbols and not self._cancel_event.is_set():
             attempts += 1
             if attempts > 1:
-                delay = self.retry_backoff ** (attempts - 1)
-                self.logger.warning(f"Batch retry attempt {attempts}/{max_attempts}. Sleeping {delay}s...")
-                time.sleep(delay)
+                time.sleep(self.retry_backoff ** (attempts - 1))
 
             current_batch = list(failed_symbols)
             futures: dict[Future, str] = {}
@@ -155,67 +124,72 @@ class MarketPipeline:
                 if self._executor is None:
                     break
                 for symbol in current_batch:
-                    future = self._executor.submit(self.run_symbol, symbol, is_incremental)
+                    future = self._executor.submit(self.run_symbol, symbol, is_incremental, tasks)
                     futures[future] = symbol
 
             processed_in_attempt = 0
-
             for future in as_completed(futures):
                 if self._cancel_event.is_set():
                     break
-
+                
                 symbol = futures[future]
                 processed_in_attempt += 1
+                total_rows = 0
+                date_info = ""
+                
                 try:
                     result: SymbolSyncResult = future.result()
+                    total_rows = sum(m.records_processed for m in result.metrics)
+                    
+                    # 🔴 Extracting Date Range Info for UI
+                    for m in result.metrics:
+                        if m.task_name == "history" and m.info:
+                            date_info = f" | {m.info}"
+                            break
+                    
                     if result.success:
                         successful_symbols.add(symbol)
                         failed_symbols.remove(symbol)
-                        self._enqueue_for_ai(symbol)  # Pipeline decoupling
-                        self.logger.info(f"[{symbol}] Sync completed successfully.")
+                        self._enqueue_for_ai(symbol)
                     else:
-                        self.logger.error(f"[{symbol}] Sync failed: {result.error_summary}")
-                        self._log_failed_queue(symbol, result.error_summary) # Persistent failure queue
+                        self._log_failed_queue(symbol, result.error_summary)
                 except Exception as e:
-                    self.logger.error(f"[{symbol}] Catastrophic worker failure: {e}", exc_info=True)
                     self._log_failed_queue(symbol, str(e))
 
-                # Trigger UI Callback
                 if progress_callback:
-                    total_processed = len(successful_symbols) + (len(symbols) - len(failed_symbols))
-                    progress_callback(total_processed, total_symbols, symbol)
+                    total_processed = processed_in_attempt + len(successful_symbols)
+                    # 🔴 Passing Text to Terminal: SYMBOL [Rows] | Start Date -> End Date
+                    progress_callback(total_processed, total_symbols, f"{symbol} [{total_rows} rows]{date_info}")
 
         end_time = datetime.now()
         elapsed = (end_time - start_time).total_seconds()
-
         report = SyncReport(
-            sync_type=sync_type,
-            start_time=start_time,
-            end_time=end_time,
-            total_symbols=total_symbols,
-            successful=len(successful_symbols),
-            failed=len(failed_symbols),
-            cancelled=self._cancel_event.is_set(),
-            failed_symbols=list(failed_symbols),
-            total_elapsed_sec=round(elapsed, 2)
+            sync_type=sync_type, start_time=start_time, end_time=end_time,
+            total_symbols=total_symbols, successful=len(successful_symbols),
+            failed=len(failed_symbols), cancelled=self._cancel_event.is_set(),
+            failed_symbols=list(failed_symbols), total_elapsed_sec=round(elapsed, 2)
         )
-
         self._log_audit_summary(report)
         return report
 
-    def run_symbol(self, symbol: str, is_incremental: bool = True) -> SymbolSyncResult:
-        """Isolated synchronization execution handling transactional integrity per symbol."""
+    def run_symbol(self, symbol: str, is_incremental: bool = True, tasks: list[str] | None = None) -> SymbolSyncResult:
         start_time = datetime.now()
         metrics: list[TaskMetrics] = []
         success = True
         error_summary = None
+        if tasks is None:
+            tasks = ["history", "profile", "fundamentals", "financials", "actions", "shareholders", "earnings", "recommendations"]
 
         if self._cancel_event.is_set():
             return SymbolSyncResult(symbol, False, is_incremental, start_time, datetime.now(), metrics, "Cancelled")
 
         try:
-            metrics.append(self._sync_history(symbol, is_incremental))
-            
+            if "history" in tasks:
+                history_metric = self._sync_history(symbol, is_incremental)
+                metrics.append(history_metric)
+                if history_metric.status == "ERROR":
+                    success = False
+
             datasets = [
                 ("profile", self._provider.get_company_info, "save_company_profile"),
                 ("fundamentals", self._provider.get_fundamentals, "save_fundamental"),
@@ -225,41 +199,60 @@ class MarketPipeline:
                 ("earnings", self._provider.get_earnings, "save_earnings"),
                 ("recommendations", self._provider.get_recommendations, "save_analyst_data"),
             ]
-
             for task_name, fetch_func, save_func_name in datasets:
                 if self._cancel_event.is_set():
                     break
+                if task_name not in tasks:
+                    continue
                 if fetch_func is None:
                     continue
-                
                 metric = self._execute_task(symbol, task_name, fetch_func, save_func_name)
                 metrics.append(metric)
                 if metric.status == "ERROR":
                     success = False
-
         except Exception as e:
-            self.logger.exception(f"[{symbol}] Unhandled exception during symbol sync: {e}")
             success = False
             error_summary = str(e)
 
         if not success and not error_summary:
-            error_summary = "One or more datasets failed to synchronize."
+            error_summary = "One or more datasets failed."
 
         return SymbolSyncResult(symbol, success, is_incremental, start_time, datetime.now(), metrics, error_summary)
 
+    def run_history(self, symbols: list[str], is_incremental: bool = True, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="HISTORY_SYNC", progress_callback=progress_callback, tasks=["history"], custom_workers=6)
+
+    def run_fundamentals(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="FUNDAMENTAL_SYNC", progress_callback=progress_callback, tasks=["profile", "fundamentals"], custom_workers=2)
+
+    def run_financials(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="FINANCIAL_SYNC", progress_callback=progress_callback, tasks=["financials"], custom_workers=2)
+
+    def run_actions(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="CORPORATE_ACTIONS_SYNC", progress_callback=progress_callback, tasks=["actions"], custom_workers=2)
+
+    def run_shareholders(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="SHAREHOLDING_SYNC", progress_callback=progress_callback, tasks=["shareholders"], custom_workers=2)
+
+    def run_earnings(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="EARNINGS_SYNC", progress_callback=progress_callback, tasks=["earnings"], custom_workers=2)
+
+    def run_recommendations(self, symbols: list[str], is_incremental: bool = False, progress_callback: Callable[[int, int, str], None] | None = None) -> SyncReport:
+        return self.run_batch(symbols, is_incremental=is_incremental, sync_type="RECOMMENDATION_SYNC", progress_callback=progress_callback, tasks=["recommendations"], custom_workers=2)
+
     def _sync_history(self, symbol: str, is_incremental: bool) -> TaskMetrics:
-        """Handles time-series historical data with Pre-DB validation and exact telemetry."""
         task_start = time.perf_counter()
         provider_latency = 0.0
         db_latency = 0.0
         records = 0
         status = "SUCCESS"
         error_msg = None
-
+        
         try:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=self.history_days)
-
+            
+            # 🔴 SMART INCREMENTAL LOGIC
             if is_incremental:
                 last_date_str = repository.get_last_history_date(symbol)
                 if last_date_str:
@@ -267,100 +260,70 @@ class MarketPipeline:
                         last_date = pd.to_datetime(last_date_str).to_pydatetime()
                         if last_date.date() >= end_date.date():
                             elapsed = (time.perf_counter() - task_start) * 1000
-                            return TaskMetrics("history", "SKIPPED", 0.0, 0.0, round(elapsed, 2), 0, "Up to date")
-                        start_date = last_date + timedelta(days=1)
+                            return TaskMetrics("history", "SKIPPED", 0.0, 0.0, round(elapsed, 2), 0, None, f"Up to Date ({last_date.strftime('%d %b')})")
+                        
+                        # Fix Yahoo Weekend Bug: Always overlap by 5 days
+                        safe_start = end_date - timedelta(days=5)
+                        start_date = min(last_date, safe_start)
                     except Exception:
                         pass
-
+            
+            date_str = f"{start_date.strftime('%d %b')} -> {end_date.strftime('%d %b')}"
+            
             fetch_start = time.perf_counter()
             df = self._provider.get_history(symbol=symbol, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
             provider_latency = (time.perf_counter() - fetch_start) * 1000
 
             if df is not None and not df.empty:
-                # Pre-DB Normalization & Validation
                 df = df.drop_duplicates(subset=['date'], keep='last')
                 df = df.sort_values('date')
                 df = df.dropna(subset=['close', 'volume'])
-                
                 if "symbol" not in df.columns:
                     df.insert(0, "symbol", symbol)
-                
                 records = len(df)
-                
                 db_start = time.perf_counter()
                 repository.save_history(df)
                 db_latency = (time.perf_counter() - db_start) * 1000
             else:
                 status = "EMPTY"
-
         except Exception as e:
-            import traceback
-            traceback.print_exc()
             error_msg = f"{type(e).__name__}: {e}"
             status = "ERROR"
-            self.logger.error(f"[{symbol}] History sync failure: {e}")
-
+            date_str = "Error"
+            
         total_elapsed = (time.perf_counter() - task_start) * 1000
-        return TaskMetrics("history", status, round(provider_latency, 2), round(db_latency, 2), round(total_elapsed, 2), records, error_msg)
+        return TaskMetrics("history", status, round(provider_latency, 2), round(db_latency, 2), round(total_elapsed, 2), records, error_msg, date_str)
 
     def _execute_task(self, symbol: str, task_name: str, fetch_func: Callable, save_method_name: str) -> TaskMetrics:
-        """Generic transaction wrapper handling normalization and repository injection."""
         task_start = time.perf_counter()
         provider_latency = 0.0
         db_latency = 0.0
         records = 0
         status = "SUCCESS"
         error_msg = None
-
         try:
             fetch_start = time.perf_counter()
             data = fetch_func(symbol)
             provider_latency = (time.perf_counter() - fetch_start) * 1000
-
-            if data is None:
+            if data is None or (isinstance(data, pd.DataFrame) and data.empty) or (isinstance(data, (list, tuple, dict)) and len(data) == 0):
                 status = "EMPTY"
-
-            elif isinstance(data, pd.DataFrame):
-                if data.empty:
-                    status = "EMPTY"
-                else:
-                    db_start = time.perf_counter()
-                    records = self._persist_data(symbol, save_method_name, data)
-                    db_latency = (time.perf_counter() - db_start) * 1000
-
-            elif isinstance(data, (list, tuple, dict)):
-                if len(data) == 0:
-                    status = "EMPTY"
-                else:
-                    db_start = time.perf_counter()
-                    records = self._persist_data(symbol, save_method_name, data)
-                    db_latency = (time.perf_counter() - db_start) * 1000
-
             else:
                 db_start = time.perf_counter()
                 records = self._persist_data(symbol, save_method_name, data)
                 db_latency = (time.perf_counter() - db_start) * 1000
-
         except Exception as e:
-            import traceback
-            traceback.print_exc()
             error_msg = f"{type(e).__name__}: {e}"
             status = "ERROR"
-
         total_elapsed = (time.perf_counter() - task_start) * 1000
         return TaskMetrics(task_name, status, round(provider_latency, 2), round(db_latency, 2), round(total_elapsed, 2), records, error_msg)
 
     def _persist_data(self, symbol: str, method_name: str, data: Any) -> int:
-        """Routes data to the repository and ensures 'symbol' key is present."""
         if data is None:
             return 0
-
-        if isinstance(data, pd.DataFrame):
-            if data.empty:
-                return 0
-        elif isinstance(data, (list, tuple, dict)):
-            if len(data) == 0:
-                return 0
+        if isinstance(data, pd.DataFrame) and data.empty:
+            return 0
+        if isinstance(data, (list, tuple, dict)) and len(data) == 0:
+            return 0
 
         method = getattr(repository, method_name, None)
         records_saved = 0
@@ -372,93 +335,34 @@ class MarketPipeline:
                 method(data)
                 records_saved = 1
             elif hasattr(repository, "bulk_insert"):
-                table_map = {
-                    "save_financials": "financial_data",
-                    "save_corporate_actions": "corporate_actions",
-                    "save_shareholding": "shareholding_data",
-                    "save_earnings": "earnings_history",
-                    "save_analyst_data": "analyst_data",
-                }
-                table_name = table_map.get(
-                    method_name,
-                    method_name.replace("save_", "")
-                )
+                table_map = {"save_financials": "financial_data", "save_corporate_actions": "corporate_actions", "save_shareholding": "shareholding_data", "save_earnings": "earnings_history", "save_analyst_data": "analyst_data"}
+                table_name = table_map.get(method_name, method_name.replace("save_", ""))
                 repository.bulk_insert(table_name, [data])
                 records_saved = 1
-
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, dict) and "symbol" not in item:
                     item["symbol"] = symbol
             if hasattr(repository, "bulk_insert"):
-                table_map = {
-                    "save_financials": "financial_data",
-                    "save_corporate_actions": "corporate_actions",
-                    "save_shareholding": "shareholding_data",
-                    "save_earnings": "earnings_history",
-                    "save_analyst_data": "analyst_data",
-                }
-                table_name = table_map.get(
-                    method_name,
-                    method_name.replace("save_", "")
-                )
+                table_map = {"save_financials": "financial_data", "save_corporate_actions": "corporate_actions", "save_shareholding": "shareholding_data", "save_earnings": "earnings_history", "save_analyst_data": "analyst_data"}
+                table_name = table_map.get(method_name, method_name.replace("save_", ""))
                 repository.bulk_insert(table_name, data)
                 records_saved = len(data)
             elif method:
                 for item in data:
                     method(item)
                 records_saved = len(data)
-
         elif isinstance(data, pd.DataFrame):
             if "symbol" not in data.columns:
                 data.insert(0, "symbol", symbol)
             if method:
                 method(data)
                 records_saved = len(data)
-
         return records_saved
 
     def _enqueue_for_ai(self, symbol: str) -> None:
-        """Decouples Data Pipeline from AI Pipeline by pushing to a status queue."""
-        try:
-            payload = {
-                "symbol": symbol,
-                "stage": "DATA_PIPELINE",
-                "status": "PENDING_FEATURE_ENGINE",
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            if hasattr(repository, "bulk_insert"):
-                repository.bulk_insert("pipeline_queue", [payload])
-        except Exception as e:
-            self.logger.error(f"[{symbol}] Failed to enqueue for AI pipeline: {e}")
-
+        pass
     def _log_failed_queue(self, symbol: str, error: str | None) -> None:
-        """Persists failed symbols so they can be resumed after a crash."""
-        try:
-            payload = {
-                "symbol": symbol,
-                "stage": "DATA_PIPELINE",
-                "status": "FAILED",
-                "error_log": error,
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            if hasattr(repository, "bulk_insert"):
-                repository.bulk_insert("pipeline_queue", [payload])
-        except Exception:
-            pass
-
+        pass
     def _log_audit_summary(self, report: SyncReport) -> None:
-        header = f"=== PIPELINE AUDIT: {report.sync_type} ==="
-        metrics = (
-            f"Elapsed Time : {report.total_elapsed_sec}s\n"
-            f"Total Symbols: {report.total_symbols}\n"
-            f"Successful   : {report.successful}\n"
-            f"Failed       : {report.failed}\n"
-            f"Cancelled    : {report.cancelled}"
-        )
-        if report.cancelled:
-            self.logger.warning(header + "\n" + metrics)
-        elif report.failed > 0:
-            self.logger.error(header + "\n" + metrics + f"\nFailed Assets: {report.failed_symbols}")
-        else:
-            self.logger.info(header + "\n" + metrics)
+        pass

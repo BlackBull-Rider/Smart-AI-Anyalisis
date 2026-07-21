@@ -195,7 +195,7 @@ class FeatureLayerManager:
         self.input_queue = pipeline_queues.symbol_queue
         self.output_queue = pipeline_queues.feature_queue
         self.workers: List[FeatureWorker] = []
-        self.num_workers = 1
+        self.num_workers = 4
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def start(self) -> None:
