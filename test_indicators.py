@@ -1,66 +1,41 @@
-import inspect
-import traceback
+import sqlite3
 import pandas as pd
+import warnings
+warnings.filterwarnings("ignore")
 
-from backend.data.data_fetcher import fetch_ohlcv
+from backend.indicators.core import pattern
+from backend.indicators.core import volatility
+from backend.indicators.core import support_resistance
 
-from backend.indicators import (
-    statistics,
-    candle,
-    support_resistance,
-    smart_money,
-)
+db_path = "/data/data/com.termux/files/home/Green-Bull-Data-Engine/database/market.db"
+conn = sqlite3.connect(db_path)
+df = pd.read_sql_query("SELECT date, open, high, low, close, volume FROM historical_data WHERE symbol='20MICRONS' ORDER BY date DESC LIMIT 300", conn)
+conn.close()
 
-MODULES = [
-    statistics,
-    candle,
-    support_resistance,
-    smart_money,
-]
+df["date"] = pd.to_datetime(df["date"])
+df.sort_values("date", inplace=True)
+df.set_index("date", inplace=True)
 
-symbol = "RELIANCE"
-df = fetch_ohlcv(symbol, limit=500)
+print("\n==================================================")
+print("1. TESTING PATTERN MODULE")
+print("==================================================")
+pat_df = pattern.calculate_patterns(df)
+print(f"Total Rows: {len(pat_df)}")
+if "channel_detected" in pat_df.columns:
+    print(f"Nulls in CHANNEL_DETECTED: {pat_df['channel_detected'].isnull().sum()}")
+    print(f"Unique values in CHANNEL_DETECTED: {pat_df['channel_detected'].dropna().unique()}")
 
-for module in MODULES:
-    print("\n" + "=" * 80)
-    print("MODULE:", module.__name__)
-    print("=" * 80)
+print("\n==================================================")
+print("2. TESTING VOLATILITY MODULE (ATR PERCENTILE)")
+print("==================================================")
+atr_pct = volatility.atr_percentile(df)
+print(f"Total Rows: {len(atr_pct)}")
+print(f"Nulls in ATR_PERCENTILE: {atr_pct.isnull().sum()}")
 
-    for name, func in inspect.getmembers(module, inspect.isfunction):
-
-        # private function skip
-        if name.startswith("_"):
-            continue
-
-        try:
-            sig = inspect.signature(func)
-
-            kwargs = {}
-
-            for p in sig.parameters.values():
-
-                if p.name == "data":
-                    kwargs["data"] = df
-
-                elif p.name == "source":
-                    kwargs["source"] = "close"
-
-                elif p.default is not inspect._empty:
-                    kwargs[p.name] = p.default
-
-            result = func(**kwargs)
-
-            print(f"\n{name}  ✅")
-
-            if isinstance(result, pd.Series):
-                print(result.tail())
-
-            elif isinstance(result, pd.DataFrame):
-                print(result.tail())
-
-            else:
-                print(result)
-
-        except Exception as e:
-            print(f"\n{name}  ❌")
-            print(type(e).__name__, e)
+print("\n==================================================")
+print("3. TESTING SR MODULE (YEARLY LEVELS)")
+print("==================================================")
+yearly = support_resistance.yearly_levels(df)
+print(f"Total Rows: {len(yearly)}")
+print(f"Nulls in YEARLY_HIGH: {yearly['upper'].isnull().sum()}")
+print("==================================================\n")

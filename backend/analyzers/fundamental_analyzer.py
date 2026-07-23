@@ -186,7 +186,7 @@ class FundamentalAnalyzer:
         l1 = {f: float(latest.get(f, np.nan if f in missing else latest[f])) for f in self.EXPECTED_SCHEMA}
         return integrity, l1
 
-    def analyze(self, df: pd.DataFrame) -> FundamentalAnalysisResult:
+    def analyze(self, df: pd.DataFrame, fundamental=None, financials=None, **kwargs) -> FundamentalAnalysisResult:
         if df.empty: raise ValueError("FundamentalAnalyzer: Empty DataFrame")
         
         integrity_score, l1 = self._validate_integrity(df)
@@ -195,6 +195,69 @@ class FundamentalAnalyzer:
         prev = df.iloc[-2] if len(df) > 1 else latest
         l1_prev = {f: float(prev.get(f, np.nan)) for f in self.EXPECTED_SCHEMA}
         
+        # 🛡️ THE FIX: SAFE DB EXTRACTION (Kills NoneType Bug) 🛡️
+        def safe_float(val, default_val=np.nan):
+            if val is None or pd.isna(val): return default_val
+            try: return float(val)
+            except: return default_val
+
+        if fundamental and isinstance(fundamental, dict):
+            l1['pe_ratio'] = safe_float(fundamental.get('pe'), l1['pe_ratio'])
+            l1['pb_ratio'] = safe_float(fundamental.get('pb'), l1['pb_ratio'])
+            l1['market_cap'] = safe_float(fundamental.get('market_cap'), l1['market_cap'])
+            l1['roe'] = safe_float(fundamental.get('roe'), l1['roe'])
+            l1['roce'] = safe_float(fundamental.get('roce'), l1['roce'])
+            l1['eps'] = safe_float(fundamental.get('eps'), l1['eps'])
+            l1['book_value_per_share'] = safe_float(fundamental.get('book_value'), l1['book_value_per_share'])
+            l1['current_ratio'] = safe_float(fundamental.get('current_ratio'), l1['current_ratio'])
+            l1['quick_ratio'] = safe_float(fundamental.get('quick_ratio'), l1['quick_ratio'])
+            l1['debt_to_equity'] = safe_float(fundamental.get('debt_equity'), l1['debt_to_equity'])
+            l1['promoter_holding'] = safe_float(fundamental.get('promoter_holding'), l1['promoter_holding'])
+            l1['fii_holding'] = safe_float(fundamental.get('fii_holding'), l1['fii_holding'])
+            l1['dii_holding'] = safe_float(fundamental.get('dii_holding'), l1['dii_holding'])
+            l1['dividend_yield'] = safe_float(fundamental.get('dividend_yield'), l1['dividend_yield'])
+            l1['beta'] = safe_float(fundamental.get('beta'), l1['beta'])
+            l1['shares_outstanding'] = safe_float(fundamental.get('shares_outstanding'), l1['shares_outstanding'])
+
+        if financials and isinstance(financials, list) and len(financials) > 0:
+            fin = financials[0]
+            l1['sales'] = safe_float(fin.get('total_revenue'), l1['sales'])
+            l1['net_income'] = safe_float(fin.get('net_income'), l1['net_income'])
+            l1['total_assets'] = safe_float(fin.get('total_assets'), l1['total_assets'])
+            l1['total_liabilities'] = safe_float(fin.get('total_liabilities'), l1['total_liabilities'])
+            l1['total_equity'] = safe_float(fin.get('shareholder_equity'), l1['total_equity'])
+            l1['operating_cash_flow'] = safe_float(fin.get('operating_cash_flow'), l1['operating_cash_flow'])
+            l1['free_cash_flow'] = safe_float(fin.get('free_cash_flow'), l1['free_cash_flow'])
+            l1['ebitda'] = safe_float(fin.get('ebitda'), l1['ebitda'])
+            l1['ebit'] = safe_float(fin.get('ebit'), l1['ebit'])
+            l1['total_debt'] = safe_float(fin.get('total_debt'), l1['total_debt'])
+            l1['roe'] = safe_float(fin.get('roe'), l1['roe'])
+            l1['roce'] = safe_float(fin.get('roce'), l1['roce'])
+            l1['roa'] = safe_float(fin.get('roa'), l1['roa'])
+            l1['roic'] = safe_float(fin.get('roic'), l1['roic'])
+            l1['gross_margin'] = safe_float(fin.get('gross_margin'), l1['gross_margin'])
+            l1['operating_margin'] = safe_float(fin.get('operating_margin'), l1['operating_margin'])
+            l1['net_margin'] = safe_float(fin.get('net_margin'), l1['net_margin'])
+            l1['revenue_growth_yoy'] = safe_float(fin.get('revenue_growth'), l1['revenue_growth_yoy'])
+            l1['profit_growth_yoy'] = safe_float(fin.get('earnings_growth'), l1['profit_growth_yoy'])
+            
+            # None-Safe Subtraction
+            ca = safe_float(fin.get('current_assets'), 0.0)
+            cl = safe_float(fin.get('current_liabilities'), 0.0)
+            l1['working_capital'] = ca - cl
+            
+            if len(financials) > 1:
+                fin_prev = financials[1]
+                l1_prev['sales'] = safe_float(fin_prev.get('total_revenue'), l1_prev['sales'])
+                l1_prev['net_income'] = safe_float(fin_prev.get('net_income'), l1_prev['net_income'])
+                l1_prev['total_assets'] = safe_float(fin_prev.get('total_assets'), l1_prev['total_assets'])
+                l1_prev['operating_cash_flow'] = safe_float(fin_prev.get('operating_cash_flow'), l1_prev['operating_cash_flow'])
+                
+                # None-Safe Subtraction for Previous Year
+                ca_p = safe_float(fin_prev.get('current_assets'), 0.0)
+                cl_p = safe_float(fin_prev.get('current_liabilities'), 0.0)
+                l1_prev['working_capital'] = ca_p - cl_p
+
         prof = self._analyze_profitability(l1)
         fin = self._analyze_financial_quality(l1, l1_prev)
         cf = self._analyze_cash_flow(l1, l1_prev)

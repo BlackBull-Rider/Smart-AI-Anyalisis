@@ -12,11 +12,11 @@ def linregress(x, y):
 EPSILON = 1e-9
 
 CONFIG = {
-    "pivot_window": 5,
-    "r2_threshold": 0.85,
+    "pivot_window": 3,
+    "r2_threshold": 0.70,
     "flat_slope_threshold": 0.0015,
-    "parallel_threshold": 0.002,
-    "extrema_match_pct": 0.005,
+    "parallel_threshold": 0.005,
+    "extrema_match_pct": 0.015,
     "pole_momentum_pct": 0.04,
     "flag_retracement_limit": 0.5,
     "volume_decay_ratio": 0.8,
@@ -291,6 +291,13 @@ def calculate_patterns(df: pd.DataFrame) -> pd.DataFrame:
 
     # 3. BUILD DATAFRAME
     pat_df = pd.DataFrame(out, index=df.index)
+    
+    # --- নতুন কোড ব্লক শুরু ---
+    # Forward fill swing levels যাতে যেকোনো ক্যান্ডেলে লাস্ট সুইং পয়েন্টটা পাওয়া যায়
+    pat_df['swing_high'] = pat_df['swing_high'].ffill()
+    pat_df['swing_low'] = pat_df['swing_low'].ffill()
+    # --- নতুন কোড ব্লক শেষ ---
+    
     for col in pat_df.columns:
         if pat_df[col].dtype == 'object':
             pat_df[col] = pat_df[col].replace(np.nan, 'None')

@@ -358,6 +358,19 @@ class MarketPipeline:
             if method:
                 method(data)
                 records_saved = len(data)
+
+        # 🔴 ROCE Sync: Copy latest ROCE from Financials to Fundamentals
+        if method_name == "save_financials" and isinstance(data, list) and len(data) > 0:
+            try:
+                latest_roce = data[0].get("roce")
+                if latest_roce is not None:
+                    fund_data = repository.get_fundamental(symbol)
+                    if fund_data:
+                        fund_data["roce"] = latest_roce
+                        repository.save_fundamental(fund_data)
+            except Exception as e:
+                self.logger.warning(f"[{symbol}] Failed to sync ROCE to fundamentals: {e}")
+
         return records_saved
 
     def _enqueue_for_ai(self, symbol: str) -> None:

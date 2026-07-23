@@ -10,7 +10,7 @@ Features Adaptive Weights and Dynamic Evidence Graphs.
 import time
 from typing import Any
 from dataclasses import dataclass, asdict
-from backend.engines.base_engine import BaseEngine, EngineConfig, EvidenceGraph, OutputStatus
+from backend.engines.base_engine import BaseEngine, EngineConfig, EvidenceGraph, OutputStatus, PipelineTrace
 
 # =====================================================================
 # ENGINE PROFILE (Configurable & Swappable)

@@ -23,7 +23,7 @@ def main() -> None:
     with MarketPipeline() as pipeline:
         report = pipeline.run_history(
             symbols=symbols,
-            is_incremental=False,
+            is_incremental=True,
             progress_callback=progress,
         )
 

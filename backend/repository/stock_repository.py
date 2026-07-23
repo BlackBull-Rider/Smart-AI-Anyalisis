@@ -127,7 +127,7 @@ class StockRepository:
         # Fix: Reset index if date is not in columns
         if "date" not in [c.lower() for c in df.columns]:
             df = df.reset_index()
-            
+
         # Fix: Normalize column names to lowercase
         df.columns = [c.lower() for c in df.columns]
 
@@ -307,11 +307,28 @@ class StockRepository:
             values,
         )
 
-
-
     # =====================================================================
     # Financial Data
     # =====================================================================
+
+    def get_financials(
+        self,
+        symbol: str,
+    ) -> list[dict]:
+
+        rows = db.fetchall(
+            """
+            SELECT *
+            FROM financial_data
+            WHERE symbol=?
+            ORDER BY fiscal_year DESC, fiscal_quarter DESC
+            """,
+            (
+                symbol.upper(),
+            ),
+        )
+
+        return [dict(row) for row in rows]
 
     def save_financials(self, rows: list[dict]) -> None:
         self.bulk_insert("financial_data", rows)
@@ -320,12 +337,50 @@ class StockRepository:
     # Corporate Actions
     # =====================================================================
 
+    def get_corporate_actions(
+        self,
+        symbol: str,
+    ) -> list[dict]:
+
+        rows = db.fetchall(
+            """
+            SELECT *
+            FROM corporate_actions
+            WHERE symbol=?
+            ORDER BY action_date DESC
+            """,
+            (
+                symbol.upper(),
+            ),
+        )
+
+        return [dict(row) for row in rows]
+
     def save_corporate_actions(self, rows: list[dict]) -> None:
         self.bulk_insert("corporate_actions", rows)
 
     # =====================================================================
     # Shareholding
     # =====================================================================
+
+    def get_shareholding(
+        self,
+        symbol: str,
+    ) -> list[dict]:
+
+        rows = db.fetchall(
+            """
+            SELECT *
+            FROM shareholding_data
+            WHERE symbol=?
+            ORDER BY quarter DESC
+            """,
+            (
+                symbol.upper(),
+            ),
+        )
+
+        return [dict(row) for row in rows]
 
     def save_shareholding(self, rows) -> None:
         if rows is None:
@@ -345,6 +400,25 @@ class StockRepository:
     # =====================================================================
     # Earnings
     # =====================================================================
+
+    def get_earnings(
+        self,
+        symbol: str,
+    ) -> list[dict]:
+
+        rows = db.fetchall(
+            """
+            SELECT *
+            FROM earnings_history
+            WHERE symbol=?
+            ORDER BY quarter DESC
+            """,
+            (
+                symbol.upper(),
+            ),
+        )
+
+        return [dict(row) for row in rows]
 
     def save_earnings(self, rows: list[dict]) -> None:
         self.bulk_insert("earnings_history", rows)
@@ -368,7 +442,6 @@ class StockRepository:
             """,
             tuple(data.values()),
         )
-
 
     # =====================================================================
     # AI Feature Data (Dedicated Writer Logic)
@@ -407,7 +480,7 @@ class StockRepository:
 
         if "date" not in [c.lower() for c in df.columns] and "date" in df.index.names:
             df = df.reset_index()
-            
+
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -422,14 +495,13 @@ class StockRepository:
             return 0
 
         rows = df.to_dict("records")
-        
-        # ৩. তোর bulk_insert ব্যবহার করে feature_history টেবিলে সেভ করা
+
+        # ৩. bulk_insert ব্যবহার করে feature_history টেবিলে সেভ করা
         self.bulk_insert(
             "feature_history",
             rows,
         )
-        
+
         return len(rows)
 
 repository = StockRepository()
-

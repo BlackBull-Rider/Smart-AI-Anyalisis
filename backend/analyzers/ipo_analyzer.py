@@ -189,7 +189,7 @@ class IPOAnalyzer:
         l1 = {f: float(latest.get(f, np.nan)) for f in self.EXPECTED_SCHEMA}
         return integrity, l1
 
-    def analyze(self, df: pd.DataFrame) -> IPOAnalysisResult:
+    def analyze(self, df, corporate_actions=None, **kwargs) -> IPOAnalysisResult:
         if df.empty:
             raise ValueError("IPOAnalyzer: Empty DataFrame")
 

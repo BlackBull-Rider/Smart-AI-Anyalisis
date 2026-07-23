@@ -15,9 +15,7 @@ from datetime import datetime, date, timedelta
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
-import numpy as np
 import yfinance as yf
-import requests
 import warnings
 
 warnings.filterwarnings(
@@ -433,10 +431,11 @@ class YahooProvider(BaseProvider):
         """
         return None
 
-    def get_earnings(self, symbol: str) -> Optional[pd.DataFrame]:
+    def get_earnings(self, symbol: str) -> List[Dict[str, Any]]:
         def fetch() -> Optional[pd.DataFrame]:
             return self.safe_dataframe(self._ticker(symbol).earnings)
-        return self._fetch_cached(symbol, "earnings", fetch)
+        df = self._fetch_cached(symbol, "earnings", fetch)
+        return self.normalize_earnings(df)
 
     def get_quarterly_results(self, symbol: str) -> Optional[pd.DataFrame]:
         def fetch() -> Optional[pd.DataFrame]:

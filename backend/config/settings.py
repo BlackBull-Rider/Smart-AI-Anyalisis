@@ -608,12 +608,12 @@ class SyncConfig:
 
     history_days: int = _env_int(
         "SYNC_HISTORY_DAYS",
-        400,
+        1500,
     )
 
     trading_candles: int = _env_int(
         "SYNC_TRADING_CANDLES",
-        250,
+        1000,
     )
 
     incremental_sync: bool = _env_bool(

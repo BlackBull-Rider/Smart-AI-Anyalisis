@@ -154,7 +154,7 @@ class InstitutionalAnalyzer:
             exp_lo = math.exp(log_odds)
             return exp_lo / (1.0 + exp_lo)
 
-    def analyze(self, df: pd.DataFrame) -> InstitutionalAnalysisResult:
+    def analyze(self, df, shareholding=None, **kwargs) -> InstitutionalAnalysisResult:
         if df is None or df.empty:
             raise ValueError("InstitutionalAnalyzer received empty DataFrame.")
         
