@@ -92,7 +92,7 @@ class MarketPipeline:
         return self._execute_universe(sync_type="FULL", is_incremental=False, progress_callback=progress_callback)
 
     def _execute_universe(self, sync_type: str, is_incremental: bool, progress_callback: Callable[[int, int, str], None] | None = None, tasks: list[str] | None = None) -> SyncReport:
-        UniverseLoader("database/market.db").refresh()
+        UniverseLoader(str(settings.database_path)).refresh()
         symbols_data = repository.get_active_symbols()
         if not symbols_data:
             return SyncReport(sync_type, datetime.now(), datetime.now(), 0, 0, 0, False, [], 0.0)

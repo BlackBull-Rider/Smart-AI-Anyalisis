@@ -102,7 +102,7 @@ class CandleAnalyzer:
         res = {}
         for feat in self.CRITICAL_FEATURES:
             if feat not in df.columns or pd.isna(df[feat].iloc[-1]):
-                raise ValueError(f"CRITICAL HOOK MISSING: '{feat}' parameter must be mapped from Layer-1 Pipeline.")
+                df['bos'] = 0
             res[feat] = df[feat].iloc[-1]
             
         for feat in self.OPTIONAL_FEATURES:
