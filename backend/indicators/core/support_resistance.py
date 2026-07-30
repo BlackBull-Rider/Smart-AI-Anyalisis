@@ -940,7 +940,12 @@ def retest_level(data: pd.DataFrame, offset: int = 0, fillna: Any = None) -> pd.
     o, h, l, c, idx = _extract_ohlc(data)
     csh, csl = confirmed_swing_high(data, 5), confirmed_swing_low(data, 5)
     eps = pd.Series(_atr_proxy(data), index=idx) * 0.1
-    t_sh = (pd.Series(l, index=idx) <= csh + eps) & (pd.Series(c, index=idx) >= csh)
+    
+    arr_l = pd.Series(l).values
+    arr_c = pd.Series(c).values
+    min_len = min(len(arr_l), len(arr_c))
+    t_sh = (arr_l[:min_len] <= (csh + eps)) & (arr_c[:min_len] >= csh)
+
     t_sl = (pd.Series(h, index=idx) >= csl - eps) & (pd.Series(c, index=idx) <= csl)
     return _finalize_output((t_sh | t_sl).rename("Retest"), offset, fillna)
 

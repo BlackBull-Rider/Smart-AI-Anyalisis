@@ -304,9 +304,8 @@ class StopLossEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS if entry_valid or sl_action != StopLossAction.NONE else DecisionStatusEnum.NO_DATA
             status_msg = "Stop Loss framework generated." if entry_valid else "No active entry. Stop Loss idling."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
-
+            trace = self._build_trace(engine_outputs, start_time, ctx, parsed_inputs)
+            
             return self._build_output(
                 status=status_enum,
                 status_msg=status_msg,

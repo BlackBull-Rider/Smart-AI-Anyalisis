@@ -1,0 +1,1490 @@
+{
+    "trend": {
+        "direction": {
+            "status": "Bearish",
+            "score": -50.0,
+            "confidence": 66.67,
+            "evidence": [
+                {
+                    "type": "EMA_Align",
+                    "weight": 20.0,
+                    "value": "Bearish Alignment",
+                    "polarity": -1
+                },
+                {
+                    "type": "EMA_Slope",
+                    "weight": 10.0,
+                    "value": "Negative Short-term Slope",
+                    "polarity": -1
+                },
+                {
+                    "type": "Structure",
+                    "weight": 20.0,
+                    "value": "Structure Consolidated",
+                    "polarity": 0
+                },
+                {
+                    "type": "VWAP",
+                    "weight": 15.0,
+                    "value": "Price below VWAP",
+                    "polarity": -1
+                },
+                {
+                    "type": "MACD",
+                    "weight": 15.0,
+                    "value": "Bearish Expanding Momentum",
+                    "polarity": -1
+                },
+                {
+                    "type": "SuperTrend",
+                    "weight": 10.0,
+                    "value": "Bullish Trailing Support",
+                    "polarity": 1
+                }
+            ]
+        },
+        "strength": {
+            "status": "Very Weak",
+            "score": 16.11,
+            "confidence": 0.0,
+            "evidence": [
+                {
+                    "type": "ADX",
+                    "weight": 70.0,
+                    "value": "Weak ADX (16.1)",
+                    "polarity": -1
+                },
+                {
+                    "type": "EMA_Spread",
+                    "weight": 15.0,
+                    "value": "Moving Averages Contracting",
+                    "polarity": -1
+                },
+                {
+                    "type": "Regression",
+                    "weight": 15.0,
+                    "value": "Messy linear fit",
+                    "polarity": -1
+                }
+            ],
+            "components": {
+                "adx": 16.106155311344516,
+                "adx_slope": -0.05782155868157051,
+                "ema_spread_slope": -0.278568863310991,
+                "r2_fit": 0.39033242047158306
+            }
+        },
+        "quality": {
+            "status": "Poor",
+            "score": 26.42,
+            "confidence": 0.0,
+            "efficiency_ratio": 0.16,
+            "noise_level": "Moderate",
+            "evidence": [
+                {
+                    "type": "Efficiency",
+                    "weight": 40.0,
+                    "value": "Choppy action",
+                    "polarity": -1
+                },
+                {
+                    "type": "Noise",
+                    "weight": 30.0,
+                    "value": "Average noise",
+                    "polarity": 0
+                },
+                {
+                    "type": "Smoothness",
+                    "weight": 30.0,
+                    "value": "Erratic path",
+                    "polarity": -1
+                }
+            ]
+        },
+        "continuation": {
+            "probability": 49.92,
+            "confidence": 54.13,
+            "category": "Moderate",
+            "evidence": [
+                {
+                    "type": "Momentum",
+                    "weight": 30.0,
+                    "value": "Direction and Strength align",
+                    "polarity": -1
+                },
+                {
+                    "type": "Health",
+                    "weight": 20.0,
+                    "value": "Messy structure",
+                    "polarity": 1
+                }
+            ]
+        },
+        "exhaustion": {
+            "level": "Low",
+            "score": 0.0,
+            "confidence": 0.0,
+            "evidence": []
+        },
+        "regime": {
+            "regime": "Compression / Sideways",
+            "phase": "Distribution Zone",
+            "confidence": 50.0
+        },
+        "multi_timeframe": {
+            "alignment": "Local Only",
+            "score": 0.0,
+            "timeframes": {
+                "Local": "Bearish"
+            },
+            "context": "MTF Data not provided from Layer 1."
+        },
+        "advanced_metrics": {
+            "trend_persistence": 73.68,
+            "trend_efficiency_score": 26.42,
+            "pullback_health": 79.61,
+            "institutional_participation": 20.0,
+            "momentum_quality": 2.58,
+            "smart_money_confirmation": 14.0,
+            "trend_reliability": 54.13
+        }
+    },
+    "momentum": {
+        "momentum_strength": {
+            "status": "Strong Bearish",
+            "score": -70.0,
+            "confidence": 100.0,
+            "evidence": [
+                {
+                    "type": "MACD",
+                    "weight": 20.0,
+                    "value": "Bearish MACD Force",
+                    "polarity": -1
+                },
+                {
+                    "type": "RSI",
+                    "weight": 20.0,
+                    "value": "Bearish RSI",
+                    "polarity": -1
+                },
+                {
+                    "type": "ROC",
+                    "weight": 15.0,
+                    "value": "Negative ROC",
+                    "polarity": -1
+                },
+                {
+                    "type": "Momentum",
+                    "weight": 15.0,
+                    "value": "Negative Momentum",
+                    "polarity": -1
+                }
+            ]
+        },
+        "momentum_acceleration": {
+            "status": "Rapid Acceleration",
+            "score": 60.0,
+            "confidence": 50.0,
+            "acceleration_rate": 1.18,
+            "evidence": [
+                {
+                    "type": "Hist_Expand",
+                    "weight": 30.0,
+                    "value": "Bearish Histogram Expansion",
+                    "polarity": -1
+                },
+                {
+                    "type": "RSI_Velocity",
+                    "weight": 30.0,
+                    "value": "High RSI Velocity",
+                    "polarity": 1
+                }
+            ]
+        },
+        "momentum_exhaustion": {
+            "status": "Normal",
+            "score": 0.0,
+            "confidence": 0.0,
+            "index": 0.0,
+            "evidence": []
+        },
+        "momentum_shift": {
+            "status": "No Major Shift",
+            "score": 0.0,
+            "confidence": 0.0,
+            "evidence": []
+        },
+        "momentum_ignition": {
+            "stage": "Dormant",
+            "score": 0.0,
+            "confidence": 0.0,
+            "evidence": []
+        },
+        "momentum_compression": {
+            "status": "Building",
+            "score": 35.0,
+            "evidence": [
+                {
+                    "type": "Price_Squeeze",
+                    "weight": 35.0,
+                    "value": "Price Volatility Squeeze (Donchian/BB Proxy)",
+                    "polarity": 0
+                }
+            ]
+        },
+        "momentum_cycle": {
+            "stage": "Acceleration",
+            "confidence": 100.0
+        },
+        "institutional_momentum": {
+            "institutional_score": 10.0,
+            "retail_score": 0.0,
+            "dominance": "Mixed Context",
+            "evidence": [
+                {
+                    "type": "SMC_Trap",
+                    "weight": 10.0,
+                    "value": "SMC Structure without Volume (Trap Risk)",
+                    "polarity": -1
+                }
+            ]
+        },
+        "multi_timeframe": {
+            "alignment": "Strong Bearish Alignment",
+            "score": -100.0,
+            "timeframes": {
+                "Local": "Bearish"
+            }
+        },
+        "rsi_analysis": {
+            "status": "Active",
+            "score": -9.23,
+            "confidence": 100.0,
+            "regime": "Bearish",
+            "evidence": []
+        },
+        "macd_analysis": {
+            "status": "Active",
+            "score": -100.0,
+            "confidence": 100.0,
+            "phase": "Expanding",
+            "evidence": []
+        },
+        "divergence": {
+            "status": "Active Divergence",
+            "strength": 87.17,
+            "type": "Regular Bullish",
+            "confidence": 25.0,
+            "evidence": [
+                {
+                    "type": "Multi_Oscillator",
+                    "weight": 25.0,
+                    "value": "1/4 Oscillators agree on Regular Bullish",
+                    "polarity": 1
+                }
+            ]
+        },
+        "swing_readiness": {
+            "state": "Very Early / Dormant",
+            "score": 6.53,
+            "confidence": 100.0,
+            "evidence": [
+                {
+                    "type": "SwingReadiness",
+                    "weight": 100.0,
+                    "value": "Composite 12-Factor Readiness: Very Early / Dormant",
+                    "polarity": -1.0
+                }
+            ]
+        },
+        "advanced_metrics": {
+            "momentum_persistence": 50.0,
+            "volume_confirmation": 38.78,
+            "momentum_quality": 59.27,
+            "momentum_efficiency": 39.03,
+            "momentum_stability": 65.0,
+            "momentum_consistency": 100.0,
+            "impulse_strength": 60.0,
+            "pullback_strength": 40.0,
+            "reversal_probability": 0.0,
+            "continuation_probability": 20.0
+        }
+    },
+    "volatility": {
+        "state": {
+            "regime": "High Volatility",
+            "score": 30.0,
+            "confidence": 79.0,
+            "evidence": [
+                {
+                    "type": "ATR_Rank",
+                    "weight": 40.0,
+                    "value": "Normal Range (Rank: 36.1%)",
+                    "polarity": 0
+                },
+                {
+                    "type": "Efficiency",
+                    "weight": 30.0,
+                    "value": "Choppy/Inefficient (ER: 0.08)",
+                    "polarity": 1
+                }
+            ]
+        },
+        "cycle": {
+            "phase": "Equilibrium",
+            "intensity": 0.0,
+            "confidence": 50.0,
+            "evidence": []
+        },
+        "squeeze": {
+            "is_squeezing": true,
+            "squeeze_score": 100.0,
+            "duration": 20,
+            "confidence": 100.0,
+            "evidence": [
+                {
+                    "type": "Squeeze_Indicator",
+                    "weight": 100.0,
+                    "value": "Active Squeeze (20 bars)",
+                    "polarity": -1
+                }
+            ]
+        },
+        "breakout": {
+            "probability": 50.0,
+            "confidence": 50.0,
+            "evidence": [
+                {
+                    "type": "Squeeze_Energy",
+                    "weight": 50.0,
+                    "value": "Squeeze building kinetic energy",
+                    "polarity": 1
+                }
+            ]
+        },
+        "advanced_metrics": {
+            "efficiency_ratio": 0.078,
+            "atr_percentile": 36.11,
+            "regime_persistence": 0,
+            "atr_z_score": -0.51,
+            "realized_vol_ratio": 1.46,
+            "gap_frequency": 3,
+            "volatility_clustering": 0.09
+        }
+    },
+    "volume": {
+        "volume_confirmation": {
+            "score": -53.33,
+            "confidence": 62.0,
+            "status": "Strong Bearish",
+            "evidence": [
+                {
+                    "type": "OBV",
+                    "weight": 15.0,
+                    "value": "Neutral/Divergent",
+                    "polarity": 0
+                },
+                {
+                    "type": "CMF",
+                    "weight": 15.0,
+                    "value": "Against Trend",
+                    "polarity": -1
+                },
+                {
+                    "type": "MFI",
+                    "weight": 10.0,
+                    "value": "Against Trend",
+                    "polarity": -1
+                },
+                {
+                    "type": "FORCE_INDEX",
+                    "weight": 10.0,
+                    "value": "Neutral/Divergent",
+                    "polarity": 0
+                },
+                {
+                    "type": "ADL",
+                    "weight": 15.0,
+                    "value": "Against Trend",
+                    "polarity": -1
+                },
+                {
+                    "type": "NVI",
+                    "weight": 5.0,
+                    "value": "Neutral/Divergent",
+                    "polarity": 0
+                },
+                {
+                    "type": "PVI",
+                    "weight": 5.0,
+                    "value": "Neutral/Divergent",
+                    "polarity": 0
+                }
+            ]
+        },
+        "volume_explosion": {
+            "score": 0.0,
+            "confidence": 60.0,
+            "status": "Dormant",
+            "evidence": []
+        },
+        "delivery_analysis": {
+            "score": 0.0,
+            "confidence": 100.0,
+            "status": "Neutral",
+            "evidence": []
+        },
+        "smart_volume": {
+            "institutional_probability": 60.0,
+            "retail_probability": 50.0,
+            "confidence": 85.0,
+            "dominance": "Mixed",
+            "evidence": [
+                {
+                    "type": "SMC",
+                    "weight": 20.0,
+                    "value": "Structure FVG_ACTIVE Active",
+                    "polarity": 1
+                }
+            ]
+        },
+        "volume_divergence": {
+            "divergence_type": "Hidden Bearish",
+            "strength": 30.29,
+            "confidence": 100.0,
+            "evidence": [
+                {
+                    "type": "CMF",
+                    "weight": 15.0,
+                    "value": "Pivot Divergence Flagged",
+                    "polarity": 1
+                },
+                {
+                    "type": "ADL",
+                    "weight": 15.0,
+                    "value": "Pivot Divergence Flagged",
+                    "polarity": -1
+                },
+                {
+                    "type": "FORCE_INDEX",
+                    "weight": 10.0,
+                    "value": "Pivot Divergence Flagged",
+                    "polarity": -1
+                }
+            ]
+        },
+        "multi_timeframe": {
+            "alignment_score": 0.0,
+            "dominant_trend": "Mixed Context",
+            "confidence": 0.0,
+            "timeframes": {}
+        },
+        "advanced_metrics": {
+            "volume_quality": 23.34,
+            "volume_efficiency": 0.08,
+            "participation_regime": "Equilibrium",
+            "smart_participation_index": 0.0,
+            "retail_participation_index": 0.0,
+            "volume_stability": 51.13,
+            "volume_persistence": 0.0,
+            "volume_dry_up": false,
+            "volume_regime_shift": false,
+            "liquidity_absorption": 0.0,
+            "volume_compression_score": 0.0,
+            "volume_expansion_probability": 0.0,
+            "block_trade_proxy": false,
+            "dark_pool_proxy": false,
+            "volume_fractal_index": -26.16
+        }
+    },
+    "pattern": {
+        "continuation_patterns": [],
+        "reversal_patterns": [],
+        "triangle_analysis": {
+            "pattern_id": "TRIANGLE",
+            "pattern_name": "Triangle",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "channel_analysis": {
+            "pattern_id": "CHANNEL",
+            "pattern_name": "Channel",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "rectangle_analysis": {
+            "pattern_id": "RECTANGLE",
+            "pattern_name": "Rectangle",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "flag_analysis": {
+            "pattern_id": "FLAG",
+            "pattern_name": "Flag/Pennant",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "wedge_analysis": {
+            "pattern_id": "WEDGE",
+            "pattern_name": "Wedge",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "cup_handle_analysis": {
+            "pattern_id": "CUP_HANDLE",
+            "pattern_name": "Rounding/Cup",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "head_shoulders_analysis": {
+            "pattern_id": "HEAD_SHOULDERS",
+            "pattern_name": "Head Shoulders",
+            "detected": false,
+            "direction": "Neutral",
+            "confidence": 0.0,
+            "quality": 0.0,
+            "breakout_probability": 0.0,
+            "failure_probability": 0.0,
+            "entry_price": 0.0,
+            "stop_loss": 0.0,
+            "target_projection": 0.0,
+            "risk_reward_profile": 0.0,
+            "institutional_explanation": "No valid structural pattern detected.",
+            "evidence": []
+        },
+        "advanced_pattern_metrics": {
+            "primary_pattern_id": "NONE",
+            "pattern_quality_index": 0.0,
+            "structural_integrity": 0.0,
+            "breakout_readiness": 0.0,
+            "false_breakout_probability": 50.0,
+            "pattern_completion_pct": 0.0,
+            "pattern_maturity": "Forming",
+            "volume_confirmation_score": 0.0,
+            "institutional_conviction": 10.0,
+            "pattern_reliability": 0.0,
+            "market_context_score": 0.0,
+            "system_confidence": 0.0,
+            "pattern_conflict_score": 0.0,
+            "pattern_consensus_score": 100.0
+        }
+    },
+    "support_resistance": {
+        "strong_support": {
+            "support_available": false,
+            "support_type": "None",
+            "support_confidence": 0.0,
+            "support_quality": 0.0,
+            "nearest_support": 0.0,
+            "distance_to_support_pct": 0.0,
+            "support_holding": false,
+            "institutional_support": false,
+            "evidence": []
+        },
+        "strong_resistance": {
+            "resistance_available": false,
+            "resistance_type": "None",
+            "resistance_confidence": 0.0,
+            "resistance_quality": 0.0,
+            "nearest_resistance": 0.0,
+            "distance_to_resistance_pct": 0.0,
+            "institutional_resistance": false,
+            "evidence": []
+        },
+        "breakout": {
+            "bullish_breakout": false,
+            "breakout_type": "None",
+            "breakout_quality": 0.0,
+            "breakout_confirmation": false,
+            "breakout_strength": 0.0,
+            "volume_confirmation": 0.0,
+            "false_breakout_risk": 0.0,
+            "institutional_breakout": false,
+            "expected_continuation": false,
+            "evidence": []
+        },
+        "breakdown": {
+            "support_breakdown": false,
+            "breakdown_type": "None",
+            "breakdown_quality": 0.0,
+            "breakdown_confirmation": false,
+            "breakdown_strength": 0.0,
+            "volume_confirmation": 0.0,
+            "false_breakdown_risk": 0.0,
+            "institutional_selling": false,
+            "expected_continuation": false,
+            "evidence": []
+        },
+        "retest": {
+            "bullish_retest": false,
+            "bearish_retest": false,
+            "retest_successful": false,
+            "retest_failed": false,
+            "retest_confidence": 0.0,
+            "retest_strength": 0.0,
+            "retest_quality": 0.0,
+            "evidence": []
+        },
+        "summary": {
+            "overall_structural_bias": "Neutral / Ranging",
+            "support_status": "Building",
+            "resistance_status": "Clear Sky",
+            "breakout_probability": 0.0,
+            "breakdown_probability": 0.0,
+            "retest_status": "None",
+            "institutional_view": "Passive / Rotational",
+            "risk_level": "Moderate",
+            "action": "WAIT (No Clear Edge)"
+        }
+    },
+    "smart_money": {
+        "bos": {
+            "bullish_bos": false,
+            "bearish_bos": false,
+            "major_bos": false,
+            "minor_bos": false,
+            "internal_bos": false,
+            "external_bos": false,
+            "bos_quality": 0.0,
+            "bos_confirmation": false,
+            "bos_strength": 0.0,
+            "continuation_probability": 0.0,
+            "evidence": []
+        },
+        "choch": {
+            "bullish_choch": false,
+            "bearish_choch": false,
+            "internal_choch": false,
+            "external_choch": false,
+            "reversal_probability": 0.0,
+            "structural_shift_quality": 0.0,
+            "evidence": []
+        },
+        "market_structure": {
+            "hh_hl": false,
+            "lh_ll": false,
+            "strong_swing": false,
+            "weak_swing": false,
+            "protected_swing": false,
+            "violation_level": 0.0,
+            "internal_external_alignment_score": 0.0,
+            "fractal_quality": 0.0,
+            "expansion": false,
+            "compression": true,
+            "trend_state": "Consolidation",
+            "internal_structure": "Neutral",
+            "external_structure": "Neutral",
+            "structure_quality": 0.0,
+            "structure_score": 0.0,
+            "evidence": [
+                {
+                    "category": "Volatility",
+                    "feature": "Structural Compression",
+                    "weight": 15.0,
+                    "polarity": 0,
+                    "reliability": 0.8,
+                    "institutional_explanation": "Price coiled. Imminent volatility expansion likely."
+                }
+            ]
+        },
+        "order_block": {
+            "bullish_ob_detected": false,
+            "bearish_ob_detected": false,
+            "active_order_block": false,
+            "fresh": false,
+            "tapped_once": false,
+            "tapped_multiple": false,
+            "consumed": false,
+            "invalidated": true,
+            "breaker_converted": false,
+            "expired": false,
+            "ob_age_score": 0.0,
+            "reaction_score": 0.0,
+            "decay_score": 0.0,
+            "institutional_strength": 35.0,
+            "reaction_probability": 0.0,
+            "evidence": []
+        },
+        "fair_value_gap": {
+            "bullish_fvg": false,
+            "bearish_fvg": false,
+            "inverse_fvg": false,
+            "nested_quality": 30.0,
+            "fvg_stack_priority": 1.0,
+            "premium_discount_position": "Equilibrium",
+            "htf_alignment": "0.0",
+            "filled": false,
+            "unfilled": true,
+            "partial_fill": false,
+            "fvg_width": 0.0,
+            "fvg_fill_ratio": 0.0,
+            "fvg_age": 0.0,
+            "decay_score": 0.0,
+            "imbalance_strength": 0.0,
+            "fvg_quality": 30.0,
+            "magnet_probability": 0.0,
+            "evidence": []
+        },
+        "liquidity": {
+            "liquidity_pools_active": false,
+            "liquidity_heatmap_score": 0.0,
+            "pool_ranking_score": 0.0,
+            "sweep_efficiency": 0.0,
+            "engineered_liquidity": false,
+            "liquidity_density": 0.0,
+            "liquidity_age": 0.0,
+            "equal_highs_strength": 0.0,
+            "equal_lows_strength": 0.0,
+            "internal_liquidity": true,
+            "external_liquidity": true,
+            "resting_liquidity": false,
+            "liquidity_void": false,
+            "liquidity_exhaustion": false,
+            "liquidity_consumption": false,
+            "buy_side_liquidity": false,
+            "sell_side_liquidity": false,
+            "liquidity_sweep": false,
+            "sweep_strength": 0.0,
+            "stop_hunt": false,
+            "inducement": false,
+            "liquidity_efficiency": 50.0,
+            "liquidity_pool_strength": 0.0,
+            "evidence": []
+        },
+        "routing": {
+            "primary_event": "Liquidity Raid",
+            "primary_zone": "Fair Value Inefficiency",
+            "primary_liquidity": "Sovereign Target Swept",
+            "primary_trigger": "FVG",
+            "primary_smc_signal": "FVG",
+            "primary_institutional_bias": "Neutral",
+            "secondary_confirmation": "Mixed Flow",
+            "signal_hierarchy": "Level-2 Priority: FVG",
+            "conflict_score": 0.0,
+            "consensus_score": 100.0,
+            "institutional_conviction": 0.0
+        },
+        "advanced_metrics": {
+            "smart_money_score": 46.25,
+            "institutional_control": "Neutral",
+            "institutional_volume_score": 0.0,
+            "market_structure_quality": 0.0,
+            "bos_quality": 0.0,
+            "choch_quality": 0.0,
+            "order_block_strength": 35.0,
+            "fvg_quality": 30.0,
+            "liquidity_quality": 0.0,
+            "liquidity_efficiency": 50.0,
+            "trap_probability": 0.0,
+            "continuation_probability": 0.0,
+            "reversal_probability": 0.0,
+            "system_confidence": 14.63,
+            "market_quality_score": 36.8
+        },
+        "summary": {
+            "action": "WAIT (No Clear SMC Edge)",
+            "primary_signal": "FVG",
+            "dominant_institutional_event": "Liquidity Raid",
+            "dominant_zone": "Fair Value Inefficiency",
+            "dominant_bias": "Neutral",
+            "signal_conflict_level": "Low",
+            "smart_money_score": 46.25,
+            "confidence_level": 14.63,
+            "top_3_evidence": [
+                "Structural Compression"
+            ]
+        }
+    },
+    "market_regime": {
+        "bull_market": {
+            "bull_probability": 60.42016812979919,
+            "bull_strength": 25.0,
+            "bull_phase": "Neutral",
+            "bull_score": 25.0,
+            "institutional_support": 22.5,
+            "evidence": [
+                {
+                    "category": "Bull",
+                    "feature": "OBV Accumulation",
+                    "weight": 15,
+                    "polarity": 1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.6,
+                    "explanation": "Bullish confirmation from OBV Accumulation."
+                }
+            ]
+        },
+        "bear_market": {
+            "bear_probability": 64.03290421381918,
+            "bear_strength": 63.63636363636363,
+            "bear_phase": "Structural Bear",
+            "distribution_score": 63.63636363636363,
+            "selling_pressure": 63.63636363636363,
+            "evidence": [
+                {
+                    "category": "Bear",
+                    "feature": "Price < EMA20",
+                    "weight": 15,
+                    "polarity": -1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.5,
+                    "explanation": "Bearish signal from Price < EMA20."
+                },
+                {
+                    "category": "Bear",
+                    "feature": "EMA20 < EMA50",
+                    "weight": 20,
+                    "polarity": -1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.6,
+                    "explanation": "Bearish signal from EMA20 < EMA50."
+                }
+            ]
+        },
+        "sideways_market": {
+            "range_probability": 69.67034607586417,
+            "compression_score": 100.0,
+            "breakout_probability": 0.0,
+            "support_quality": 70.0,
+            "resistance_quality": 70.0,
+            "efficiency_ratio": 0.15080846827557054,
+            "hurst_proxy": 0.3894480956354481,
+            "evidence": [
+                {
+                    "category": "Sideways",
+                    "feature": "Efficiency Ratio",
+                    "weight": 20.0,
+                    "polarity": 1,
+                    "reliability": 0.95,
+                    "likelihood_ratio": 1.8,
+                    "explanation": "Low price efficiency (ER=0.15) indicates mean-reverting regime."
+                },
+                {
+                    "category": "Sideways",
+                    "feature": "Hurst Exponent",
+                    "weight": 25.0,
+                    "polarity": 1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.9,
+                    "explanation": "Hurst Exponent (0.39) validates mean-reverting regime."
+                }
+            ]
+        },
+        "volatility_regime": {
+            "volatility_regime": "High",
+            "volatility_score": 65.17971395232952,
+            "tail_risk": 86.9062852697727,
+            "volatility_percentile": 50.0,
+            "yang_zhang_vol": 21.726571317443174,
+            "expected_move": 1.3686453463824668,
+            "evidence": []
+        },
+        "risk_regime": {
+            "risk_regime": "Neutral",
+            "risk_score": 0.0,
+            "crisis_probability": 50.0,
+            "amihud_liquidity": 0.0,
+            "systemic_risk": 0.0,
+            "cross_asset_stress": 0.0,
+            "evidence": []
+        },
+        "composite_score": {
+            "market_regime_score": 59.471891630115294,
+            "bull_score": 25.0,
+            "bear_score": 63.63636363636363,
+            "sideways_score": 100.0,
+            "volatility_score": 65.17971395232952,
+            "risk_score": 0.0,
+            "overall_market_regime": "Bull Market",
+            "regime_confidence": 54.53480963657917,
+            "institutional_conviction": 38.35066499287857,
+            "probability_bull": 1.98321682852469,
+            "probability_bear": 13.688257781304324,
+            "probability_sideways": 84.32852538960279,
+            "viterbi_state": "Bull",
+            "shannon_entropy": 1.1643038240501644,
+            "hmm_forward_bull": 17.995658937139382,
+            "hmm_forward_bear": 11.681064517062516
+        },
+        "summary": {
+            "current_market_regime": "Bull Market",
+            "market_cycle": "Consolidation",
+            "recommended_positioning": "Market Neutral",
+            "gross_exposure": 100.0,
+            "net_exposure": 10.0,
+            "leverage": 1.0,
+            "hedge_ratio": 15.0,
+            "cash_target": 25.0,
+            "sector_rotation": "Dividend Yield",
+            "tail_risk": "Elevated",
+            "expected_drawdown": 4.105936039147401,
+            "regime_duration_expected": 2.5,
+            "probability_of_transition": 100.0,
+            "confidence": 54.53480963657917,
+            "top_positive_factors": [
+                "Hurst Exponent (0.39) validates mean-reverting regime.",
+                "Low price efficiency (ER=0.15) indicates mean-reverting regime.",
+                "Bullish confirmation from OBV Accumulation."
+            ],
+            "top_negative_factors": [
+                "Bearish signal from EMA20 < EMA50.",
+                "Bearish signal from Price < EMA20."
+            ],
+            "key_risks": [
+                "Opportunity Cost"
+            ],
+            "key_opportunities": [
+                "Mean Reversion"
+            ]
+        }
+    },
+    "candle": {
+        "candle_psychology": {
+            "score": 0.0,
+            "status": "Equilibrium",
+            "emotion": "Indecision",
+            "auction_balance": "Symmetrical Balance",
+            "evidence": [
+                {
+                    "category": "psychology",
+                    "type": "Effort_Vs_Result",
+                    "weight": 25.0,
+                    "value": "Absorption",
+                    "polarity": 0,
+                    "institutional_explanation": "Limit barrier absorption.",
+                    "reliability": 1.0
+                }
+            ]
+        },
+        "bull_bear_analysis": {
+            "bull_weight_ratio": 0.0417,
+            "bear_weight_ratio": 0.9583,
+            "dominance": "Bearish Auction Control",
+            "clv_score": -0.9167,
+            "institutional_control_score": 91.67
+        },
+        "reversal_detection": {
+            "probability": 15.0,
+            "direction": "None",
+            "quality": "Trend Profile Intact",
+            "trap_probability": 15.0,
+            "evidence": []
+        },
+        "continuation_detection": {
+            "probability": 56.9,
+            "quality": "Mean Reverting Compression",
+            "evidence": []
+        },
+        "gap_analysis": {
+            "gap_type": "Common Auction Variance",
+            "gap_acceptance": 0,
+            "gap_fill_probability": 20.0,
+            "evidence": []
+        },
+        "multi_timeframe": {
+            "alignment_score": 0.0,
+            "htf_dominant_bias": "Rotational Balance",
+            "ltf_trigger_state": "Friction Compression",
+            "structural_alignment": "Consensus Structural Matrix",
+            "conflict_score": 0.0,
+            "timeframes": {}
+        },
+        "advanced_metrics": {
+            "candle_quality_index": 0.0,
+            "psychology_index": 0.0,
+            "rejection_index": 0,
+            "acceptance_index": 25.0,
+            "smart_money_conviction": -0.5216,
+            "institutional_conviction": 0.9167,
+            "retail_emotion": "Indecision",
+            "trap_index": 15.0,
+            "auction_balance": 100.0,
+            "price_acceptance_score": 100.0,
+            "price_rejection_score": 0.0,
+            "market_quality_score": 0.0,
+            "conviction_decay": 100.0,
+            "price_discovery_index": 0.0,
+            "liquidity_utilization": 95.83,
+            "system_confidence": 0.0
+        }
+    },
+    "fundamental": {
+        "business_quality": {
+            "business_moat": 13.338085790604985,
+            "brand_strength": 12.004277211544487,
+            "market_leadership": 66.69042895302492,
+            "pricing_power": 0.0,
+            "customer_stickiness": 11.337372922014238,
+            "management_quality": 33.33333333333333,
+            "corporate_governance": 33.33333333333333,
+            "capital_allocation": 3.9711060813354515,
+            "competitive_advantage": 13.338085790604985,
+            "business_stability": 100.0,
+            "evidence": []
+        },
+        "financial_quality": {
+            "balance_sheet": 41.363107187285294,
+            "debt": 36.653,
+            "liquidity": 0.0,
+            "working_capital": 0.0,
+            "cash_position": 1921130000000.0,
+            "interest_coverage": 0.0,
+            "current_ratio": 0.0,
+            "quick_ratio": 0.0,
+            "asset_quality": 41.363107187285294,
+            "earnings_quality": 33.33333333333333,
+            "piotroski_f_score": 3,
+            "altman_z_score": 1.654524287491412,
+            "beneish_m_score": -3.46717218452441,
+            "sloan_ratio": -0.051116089874847344,
+            "evidence": [
+                {
+                    "category": "Forensic",
+                    "feature": "Altman Z",
+                    "weight": 20.0,
+                    "polarity": -1,
+                    "reliability": 0.95,
+                    "likelihood_ratio": 0.1,
+                    "explanation": "Distress Zone (Z: 1.65)"
+                }
+            ]
+        },
+        "growth_analysis": {
+            "revenue_growth": 0.0,
+            "profit_growth": 0.0,
+            "eps_growth": 0.0,
+            "book_value_growth": 0.0,
+            "cash_flow_growth": 0.0,
+            "fcf_growth": 0.0,
+            "growth_stability": 100.0,
+            "growth_consistency": 100.0,
+            "historical_cagr": 0.0,
+            "projected_growth": 0.0,
+            "evidence": []
+        },
+        "valuation_analysis": {
+            "pe": 23.305271,
+            "pb": 1.906159,
+            "peg": 0.0,
+            "ev_ebitda": 0.0,
+            "price_sales": 0.0,
+            "dcf_score": 85.40185236786994,
+            "intrinsic_value": 2004.391915696531,
+            "margin_of_safety": 35.40185236786994,
+            "relative_valuation": 41.736822499999995,
+            "fair_value_gap": 709.591866868406,
+            "residual_income_value": 843.9263166964502,
+            "economic_value_added": -297278270454.4514,
+            "evidence": [
+                {
+                    "category": "Valuation",
+                    "feature": "Monte Carlo DCF",
+                    "weight": 15.0,
+                    "polarity": 1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.9,
+                    "explanation": "Deep Value: 35.4% MoS (5000 Simulations)"
+                }
+            ]
+        },
+        "profitability_analysis": {
+            "roe": 0.0,
+            "roce": 0.0,
+            "roa": 0.0,
+            "roic": 0.0,
+            "croic": 3.176884865068361,
+            "gross_margin": 0.0,
+            "operating_margin": 0.0,
+            "ebitda_margin": 19.381604000684817,
+            "net_margin": 7.64032806826211,
+            "cash_margin": 18.17154250916792,
+            "efficiency": 3.9711060813354515,
+            "dupont_asset_turnover": 0.4853769730136722,
+            "dupont_equity_multiplier": 2.4093669457871973,
+            "evidence": []
+        },
+        "shareholding_analysis": {
+            "promoter_holding": 0.0,
+            "promoter_change": 0.0,
+            "fii_holding": 0.0,
+            "fii_change": 0.0,
+            "dii_holding": 0.0,
+            "dii_change": 0.0,
+            "public_holding": 0.0,
+            "insider_activity": 0.0,
+            "pledge": 0.0,
+            "ownership_stability": 100.0,
+            "evidence": []
+        },
+        "cashflow_analysis": {
+            "operating_cash_flow": 1921130000000.0,
+            "free_cash_flow": 691970000000.0,
+            "fcf_yield": 4.015552048935469,
+            "cash_conversion": 100.0,
+            "cfo_vs_pat": 2.3783720210461157,
+            "cash_quality": 100.0,
+            "cash_stability": 100.0,
+            "operating_efficiency": 65.0,
+            "owner_earnings": 807750000000.0,
+            "cash_conversion_cycle": 35.0,
+            "evidence": [
+                {
+                    "category": "CashFlow",
+                    "feature": "CCC",
+                    "weight": 10.0,
+                    "polarity": 1,
+                    "reliability": 0.9,
+                    "likelihood_ratio": 1.5,
+                    "explanation": "Highly efficient working capital (CCC: 35.0)"
+                }
+            ]
+        },
+        "risk_analysis": {
+            "debt_risk": 100.0,
+            "financial_risk": 100.0,
+            "governance_risk": 66.66666666666667,
+            "business_risk": 14.598147632130065,
+            "earnings_risk": 66.66666666666667,
+            "growth_risk": 0.0,
+            "liquidity_risk": 100.0,
+            "dilution_risk": 0.0,
+            "cyclical_risk": 16.32,
+            "overall_risk": 50.97677762297236,
+            "evidence": []
+        },
+        "capital_allocation": {
+            "dividend_policy": 9.200000000000001,
+            "buyback_quality": 50.0,
+            "reinvestment": 0.0,
+            "acquisitions": 50.0,
+            "capital_efficiency": 0.0,
+            "roic_spread": -9.5,
+            "shareholder_return": 0.46,
+            "investment_discipline": 50.0,
+            "evidence": []
+        },
+        "composite_score": {
+            "business_score": 13.338085790604985,
+            "financial_score": 41.363107187285294,
+            "growth_score": 100.0,
+            "valuation_score": 85.40185236786994,
+            "profitability_score": 3.9711060813354515,
+            "shareholding_score": 100.0,
+            "cash_flow_score": 100.0,
+            "risk_score": 50.97677762297236,
+            "capital_allocation_score": 0.0,
+            "overall_fundamental_score": 0.0,
+            "investment_grade": "JUNK",
+            "expected_long_term_quality": 0.0,
+            "fundamental_confidence": 0.0
+        },
+        "summary": {
+            "recommended_action": "SELL",
+            "investment_grade": "JUNK",
+            "fundamental_rating": "0.0/100",
+            "overall_score": 0.0,
+            "confidence": 0.0,
+            "business_quality": "Vulnerable",
+            "financial_strength": "Weak",
+            "growth_outlook": "0.0% CAGR",
+            "valuation_status": "Deep Value",
+            "risk_level": "Low",
+            "top_10_evidence": [
+                "Distress Zone (Z: 1.65)",
+                "Deep Value: 35.4% MoS (5000 Simulations)",
+                "Highly efficient working capital (CCC: 35.0)"
+            ],
+            "key_strengths": [
+                "Deep Value: 35.4% MoS (5000 Simulations)",
+                "Highly efficient working capital (CCC: 35.0)"
+            ],
+            "key_weaknesses": [
+                "Distress Zone (Z: 1.65)"
+            ],
+            "expected_cagr_category": "Stable",
+            "long_term_investment_suitability": "Tactical"
+        }
+    },
+    "institutional": {
+        "fii_analysis": {
+            "status": "Neutral",
+            "fii_confidence": 0.0,
+            "fii_conviction": 0.0,
+            "institutional_pressure": 0.0,
+            "historical_strength": 0.0,
+            "evidence": []
+        },
+        "dii_analysis": {
+            "status": "Neutral",
+            "dii_score": 0.0,
+            "participation": 0.0,
+            "reliability": 90.0,
+            "evidence": []
+        },
+        "promoter_analysis": {
+            "status": "Stable",
+            "stable_holding": true,
+            "increasing_ownership": false,
+            "ownership_risk": true,
+            "control_strength": 0.0,
+            "promoter_confidence": 95.0,
+            "promoter_reliability": 98.0,
+            "evidence": []
+        },
+        "delivery_analysis": {
+            "delivery_percent": 0.0,
+            "delivery_trend": 0.0,
+            "long_term_accumulation": false,
+            "speculative_volume": true,
+            "institutional_participation": false,
+            "delivery_quality": 0.0,
+            "delivery_confidence": 0.0,
+            "evidence": [
+                {
+                    "category": "Delivery",
+                    "feature": "Absorption",
+                    "weight": 0.1,
+                    "polarity": -1,
+                    "reliability": 0.85,
+                    "likelihood_ratio": 0.7,
+                    "institutional_explanation": "Float Absorption: 0.00%"
+                }
+            ]
+        },
+        "block_deal_analysis": {
+            "large_institutional_buy": false,
+            "large_institutional_sell": false,
+            "fresh_position": false,
+            "exit_position": false,
+            "continuation": false,
+            "reliability": 88.0,
+            "probability": 0.0,
+            "evidence": []
+        },
+        "bulk_deal_analysis": {
+            "bulk_buying": false,
+            "bulk_selling": false,
+            "repeated_buying": false,
+            "repeated_selling": false,
+            "reliability": 80.0,
+            "probability": 0.0,
+            "evidence": []
+        },
+        "smart_money_analysis": {
+            "status": "Distributing",
+            "flow_score": 0.0,
+            "evidence": [
+                {
+                    "category": "SmartMoney",
+                    "feature": "Flow",
+                    "weight": 0.05,
+                    "polarity": -1,
+                    "reliability": 0.85,
+                    "likelihood_ratio": 0.4,
+                    "institutional_explanation": "SMC Score: 0.0"
+                }
+            ]
+        },
+        "routing_engine": {
+            "primary_institutional_event": "Distribution",
+            "dominant_buyer": "None",
+            "dominant_seller": "Promoter",
+            "institutional_bias": "Bearish",
+            "participation_quality": 0.0,
+            "ownership_quality": 0.0,
+            "consensus_score": 99.99999983471075,
+            "conflict_score": 0.0,
+            "institutional_conviction": 18.150000000000002
+        },
+        "probabilities": {
+            "accumulation_probability": 25.31,
+            "distribution_probability": 74.69,
+            "institutional_presence_probability": 0.0,
+            "ownership_shift_probability": 0.0,
+            "trend_continuation_probability": 0.0
+        },
+        "advanced_metrics": {
+            "institutional_score": 13.038,
+            "ownership_quality": 0.0,
+            "buying_pressure": 0.0,
+            "selling_pressure": 12.75,
+            "accumulation_score": 0.0,
+            "distribution_score": 14.2844625,
+            "delivery_quality": 0.0,
+            "ownership_stability": 0.0,
+            "institutional_confidence": 99.99999983471075,
+            "market_quality": 0.0
+        },
+        "summary": {
+            "recommended_action": "WAIT",
+            "dominant_institutional_event": "Distribution",
+            "dominant_buyer": "None",
+            "dominant_seller": "Promoter",
+            "institutional_bias": "Bearish",
+            "confidence": 64.61,
+            "top_5_evidence": [
+                "SMC Score: 0.0",
+                "Float Absorption: 0.00%"
+            ],
+            "risk_level": "High"
+        }
+    },
+    "ipo": {
+        "ipo_quality": {
+            "issue_quality": 32.5,
+            "business_quality": 0.0,
+            "management_quality": 30.0,
+            "financial_quality": 100.0,
+            "capital_allocation": 0.0,
+            "evidence": []
+        },
+        "gmp_analysis": {
+            "gmp_premium": 0.0,
+            "gmp_momentum": 0.0,
+            "gmp_reliability": 50.0,
+            "gmp_persistence": 50.0,
+            "gmp_premium_score": 15.0,
+            "evidence": []
+        },
+        "subscription_analysis": {
+            "overall_subscription": 0.0,
+            "oversubscription_velocity": 0.0,
+            "last_day_spike": 0.0,
+            "qib_score": 0.0,
+            "hni_score": 0.0,
+            "retail_score": 0.0,
+            "category_concentration": 0.0,
+            "smart_money_participation": 0.0,
+            "evidence": []
+        },
+        "anchor_analysis": {
+            "anchor_allocation": 0.0,
+            "top_anchor_concentration": 100.0,
+            "domestic_vs_foreign_ratio": 1.0,
+            "mf_sovereign_pct": 0.0,
+            "lockin_expiry_impact": 100.0,
+            "anchor_quality_score": 0.0,
+            "evidence": []
+        },
+        "listing_strength": {
+            "listing_gain": 0.0,
+            "opening_auction_strength": 0.0,
+            "vwap_premium": 0.0,
+            "intraday_high_retention": 0.0,
+            "closing_strength": 0.0,
+            "relative_volume": 0.0,
+            "evidence": []
+        },
+        "listing_opportunity": {
+            "dcf_value": 0.0,
+            "relative_pe_value": 0.0,
+            "ev_ebitda_value": 0.0,
+            "ev_sales_value": 0.0,
+            "weighted_fair_value": 1e-09,
+            "expected_upside": 0.0,
+            "margin_of_safety": 0.0,
+            "p10_listing_estimate": 5e-10,
+            "p50_listing_estimate": 1.768370664300121e-08,
+            "p90_listing_estimate": 1.2829723729832008e-05,
+            "evidence": []
+        },
+        "risk_analysis": {
+            "sector_risk": 50.0,
+            "market_sentiment_risk": 50.0,
+            "grey_market_collapse_risk": 0.0,
+            "float_turnover_risk": 10.00000000000001,
+            "post_lockin_supply_shock": 0.0,
+            "valuation_dispersion": 0.0,
+            "macro_liquidity_risk": 50.0,
+            "overall_ipo_risk": 25.0,
+            "evidence": []
+        },
+        "composite_score": {
+            "quality_score": 32.5,
+            "demand_score": 0.0,
+            "opportunity_score": 50.0,
+            "listing_score": 50.0,
+            "risk_score": 25.0,
+            "base_weighted_score": 36.875,
+            "penalty_deduction": 0.0,
+            "bayesian_confidence_multiplier": 0.85,
+            "overall_ipo_score": 31.34375,
+            "investment_grade": "JUNK"
+        },
+        "summary": {
+            "recommended_action": "AVOID",
+            "why_apply": [
+                "Neutral Framework"
+            ],
+            "why_avoid": [
+                "No major flags"
+            ],
+            "expected_listing_range": "₹0.0 - ₹0.0 (Base: ₹0.0)",
+            "expected_1_month_return": 0.0,
+            "expected_6_month_return": 0.0,
+            "expected_cagr": NaN,
+            "probability_of_success": 50.0,
+            "probability_of_failure": 50.0
+        }
+    }
+}

@@ -144,6 +144,10 @@ class ExplanationEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_explanation_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_explanation(*args, **kwargs)
+
     def evaluate_explanation(
         self, 
         master: dict[str, Any] | None, 
@@ -274,8 +278,8 @@ class ExplanationEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS
             status_msg = "Audit Trail and Institutional Explanations generated."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = len(flat)
+            object.__setattr__(trace, 'steps_executed', ctx.steps)
+            object.__setattr__(trace, 'inputs_parsed', len(flat))
 
             return self._build_output(
                 status=status_enum,

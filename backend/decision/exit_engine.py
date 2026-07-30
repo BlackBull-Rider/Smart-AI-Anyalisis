@@ -289,9 +289,8 @@ class ExitEngine(BaseDecisionEngine):
                 "risk_flags": risk_flags
             }
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
-
+            trace = self._build_trace(engine_outputs, start_time, ctx, parsed_inputs)
+            
             return self._build_output(
                 status=DecisionStatusEnum.SUCCESS,
                 status_msg="Exit intent constructed successfully.",
@@ -477,7 +476,7 @@ class ExitEngine(BaseDecisionEngine):
             self._add_explanation(ctx, "Core structural health remains intact. No institutional exit required.")
             return flags
 
-        if action.action == ExitActionType.PROFIT_BOOKING:
+        if type_enum == ExitType.PROFIT_BOOKING:
             self._add_explanation(ctx, f"Target realization triggered. {action.fraction*100}% reduction advised.")
             
         if action.action == ExitActionType.HEDGE:

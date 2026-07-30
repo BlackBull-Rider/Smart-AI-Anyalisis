@@ -458,13 +458,21 @@ class AnalyzerEngine:
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         symbol = input_data.get("symbol")
+        
+        # লেয়ার-১ থেকে আসা ইন-মেমরি DataFrame নিচ্ছে
+        in_memory_df = input_data.get("in_memory_df") 
+        
         if not symbol:
             return {"status": "FAILED", "error": "Missing symbol in payload."}
+        if in_memory_df is None or in_memory_df.empty:
+            return {"status": "FAILED", "error": "Missing indicator DataFrame from Layer-1."}
 
         conn = self._get_db_connection()
         try:
-            df = self._fetch_feature_history(conn, symbol)
+            df = in_memory_df.copy()
+            df.columns = [str(c).lower().strip() for c in df.columns]
             
+            # ডাটাবেস থেকে ফান্ডামেন্টাল/প্রোফাইল ডেটা টানছে
             ctx_dicts = [
                 self._fetch_single_row(conn, "fundamental_data", symbol),
                 self._fetch_single_row(conn, "financial_data", symbol),
@@ -478,7 +486,6 @@ class AnalyzerEngine:
                 self._fetch_single_row(conn, "macro_environment")
             ]
             
-            # 🔴 CAREFUL MERGE: Don't overwrite valid existing columns with NaNs
             for ctx in ctx_dicts:
                 for k, v in ctx.items():
                     if k in ['symbol', 'date', 'updated_at']:
@@ -488,7 +495,6 @@ class AnalyzerEngine:
                     elif k not in df.columns:
                         df[k] = np.nan
 
-            # 🔴 LATE MAPPING: Run ALIAS_MAP only after all data is safely merged
             for target_col, aliases in self.ALIAS_MAP.items():
                 if target_col not in df.columns or pd.isna(df[target_col].iloc[-1] if not df.empty else np.nan):
                     for alias in aliases:
@@ -499,7 +505,7 @@ class AnalyzerEngine:
                     df[target_col] = np.nan
             
         except Exception as e:
-            return {"status": "FAILED", "error": f"Database Load Error: {str(e)}"}
+            return {"status": "FAILED", "error": f"Database Context Load Error: {str(e)}"}
         finally:
             conn.close()
 
@@ -514,4 +520,6 @@ class AnalyzerEngine:
 
         return results
 
+
 analyzer_engine = AnalyzerEngine()
+

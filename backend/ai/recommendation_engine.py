@@ -168,6 +168,10 @@ class RecommendationEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_recommendation_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_recommendation(*args, **kwargs)
+
     def evaluate_recommendation(self, stock_output: dict[str, Any] | None) -> dict[str, Any]:
         """
         Main execution pipeline for Final Recommendation Synthesis.
@@ -305,7 +309,7 @@ class RecommendationEngine(BaseDecisionEngine):
                 "recommendation_strength": round(rec_strength, 2),
                 "recommendation_confidence": round(confidence, 2),
                 "recommendation_priority": rec_priority.value,
-                "recommendation_window": rec_window.value,
+                "recommendation_window": (rec_window.value if hasattr(rec_window, "value") else "MEDIUM"),
                 "recommendation_profile": asdict(rec_profile),
                 "recommendation_components": [asdict(c) for c in rec_components],
                 "recommendation_reason": asdict(r_reason),
@@ -316,8 +320,8 @@ class RecommendationEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS
             status_msg = "Final Investment Recommendation formulated."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
+            object.__setattr__(trace, 'steps_executed', ctx.steps)
+            object.__setattr__(trace, 'inputs_parsed', parsed_inputs)
 
             return self._build_output(
                 status=status_enum,
@@ -375,14 +379,14 @@ class RecommendationEngine(BaseDecisionEngine):
             return Recommendation.STRONG_BUY, RecommendationPriority.CRITICAL, RecommendationWindow.SHORT_TERM
             
         if score >= t.get("buy_threshold", 70.0) and conviction >= 60.0:
-            return Recommendation.BUY, RecommendationPriority.HIGH, RecommendationWindow.MEDIUM_TERM
+            return Recommendation.BUY, RecommendationPriority.HIGH, None_TERM
             
         # ACCUMULATE: Great business, but timing/momentum isn't perfect
         if fund >= t.get("accumulate_fund_threshold", 75.0) and mom < 60.0 and conviction < 60.0:
             return Recommendation.ACCUMULATE, RecommendationPriority.MEDIUM, RecommendationWindow.LONG_TERM
             
         if score >= t.get("hold_threshold", 50.0):
-            return Recommendation.HOLD, RecommendationPriority.LOW, RecommendationWindow.OPEN
+            return Recommendation.HOLD, RecommendationPriority.LOW, None
             
         if score >= t.get("watch_threshold", 40.0):
             return Recommendation.WATCH, RecommendationPriority.WATCH, RecommendationWindow.NONE

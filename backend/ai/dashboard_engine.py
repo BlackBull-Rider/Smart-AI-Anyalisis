@@ -143,6 +143,10 @@ class DashboardEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_dashboard_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_dashboard(*args, **kwargs)
+
     def evaluate_dashboard(
         self, 
         market: dict[str, Any] | None, 
@@ -298,8 +302,8 @@ class DashboardEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS
             status_msg = "Executive Dashboard aggregated successfully."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = payload_envelope["rec_count"] + payload_envelope["watchlist_count"]
+            object.__setattr__(trace, 'steps_executed', ctx.steps)
+            object.__setattr__(trace, 'inputs_parsed', payload_envelope["rec_count"] + payload_envelope["watchlist_count"])
 
             return self._build_output(
                 status=status_enum,

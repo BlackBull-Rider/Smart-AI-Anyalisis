@@ -254,9 +254,8 @@ class EntryEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS if is_permitted else DecisionStatusEnum.PARTIAL
             status_msg = "Entry framework constructed." if is_permitted else "Entry blocked by Gatekeeper."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
-
+            trace = self._build_trace(engine_outputs, start_time, ctx, parsed_inputs)
+            
             return self._build_output(
                 status=status_enum,
                 status_msg=status_msg,
@@ -394,8 +393,7 @@ class EntryEngine(BaseDecisionEngine):
             market_permitted=is_permitted
         )
 
-    def _calculate_advanced_confidence(self, ctx: DecisionContext, layer3_conf: float, quality: float, 
-    DecisionTrace,
+    def _calculate_advanced_confidence(self, ctx: DecisionContext, layer3_conf: float, quality: float,
                                        trend: float, mom: float, inst: float, smc: float, 
                                        parsed_count: int, is_permitted: bool) -> float:
         if not is_permitted: return 0.0
@@ -410,8 +408,7 @@ class EntryEngine(BaseDecisionEngine):
             (signal_stability * 0.20) + (inst_reliability * 0.25)
         )
 
-    def _detect_conflicts(self, ctx: DecisionContext, trend: float, mom: float, brk: float, vol: float, 
-    DecisionTrace,
+    def _detect_conflicts(self, ctx: DecisionContext, trend: float, mom: float, brk: float, vol: float,
                           inst: float, smc: float, risk: float, rew: float, perm: MarketPermission) -> None:
         if trend > 80.0 and perm in [MarketPermission.BLOCKED, MarketPermission.RESTRICTED]:
             self._add_conflict(ctx, "Bullish Trend exists, but Market Regime Gatekeeper has BLOCKED entry.", penalty=50.0)
@@ -433,8 +430,7 @@ class EntryEngine(BaseDecisionEngine):
         if quality >= 45.0: return "Watchlist"
         return "Avoid"
 
-    def _generate_flags_and_explanations(self, ctx: DecisionContext, perm: MarketPermission, 
-    DecisionTrace,
+    def _generate_flags_and_explanations(self, ctx: DecisionContext, perm: MarketPermission,
                                          quality: float, chk: EntryChecklist, risk: RiskProfile, type_enum: EntryType) -> list[str]:
         flags = []
         

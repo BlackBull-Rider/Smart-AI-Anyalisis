@@ -1,11 +1,2 @@
-# Python cache
+database/
 __pycache__/
-*.pyc
-
-# Environment/API keys
-.env
-config.json
-
-# Data files
-*.csv
-*.db

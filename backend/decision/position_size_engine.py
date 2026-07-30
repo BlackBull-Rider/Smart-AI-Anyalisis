@@ -250,7 +250,7 @@ class PositionSizeEngine(BaseDecisionEngine):
                 entry_ok=(entry_qual > 50.0),
                 stoploss_ok=(stop_qual > 50.0),
                 confidence_ok=(layer3_conf > 50.0),
-                portfolio_ok=(risk_contrib.portfolio_risk_pct <= self.config.thresholds.get("max_portfolio_risk_per_trade_pct", 2.0)),
+                portfolio_ok=(risk_contrib.risk_per_trade_pct <= self.config.thresholds.get("max_portfolio_risk_per_trade_pct", 2.0)),
                 liquidity_ok=(liquidity > 40.0)
             )
             
@@ -275,7 +275,7 @@ class PositionSizeEngine(BaseDecisionEngine):
             
             p_reason = PositionReason(
                 primary="Risk-parity bounds strictly limit maximum executable quantity." if risk_contrib.stop_distance_pct > 5.0 else "Capital allocation supports a standard mathematically sized position.",
-                secondary=f"Policy: {policy.value} | Ptf Risk: {risk_contrib.portfolio_risk_pct}%",
+                secondary=f"Policy: {policy.value} | Ptf Risk: {risk_contrib.risk_per_trade_pct}%",
                 confidence=round(pos_conf, 2)
             )
 
@@ -306,9 +306,8 @@ class PositionSizeEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS if is_permitted else DecisionStatusEnum.PARTIAL
             status_msg = "Sizing execution calculated." if is_permitted else "Sizing Blocked by Upstream Gatekeepers."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
-
+            trace = self._build_trace(engine_outputs, start_time, ctx, parsed_inputs)
+            
             return self._build_output(
                 status=status_enum,
                 status_msg=status_msg,
@@ -479,7 +478,7 @@ class PositionSizeEngine(BaseDecisionEngine):
         if level in [PositionLevel.LARGE, PositionLevel.STANDARD] and conf < 40.0:
             self._add_conflict(ctx, "High executable quantity contradicts low upstream confidence.", penalty=15.0)
             
-        if level in [PositionLevel.FULL_POSITION, PositionLevel.MAXIMUM] and regime < 35.0:
+        if level in [PositionLevel.LARGE, PositionLevel.MAXIMUM] and regime < 35.0:
             self._add_conflict(ctx, "Full position sizing contradicts highly hostile bearish market regime.", penalty=15.0)
 
     def _calculate_advanced_confidence(self, ctx: DecisionContext, layer3_conf: float, 

@@ -162,6 +162,10 @@ class RankingEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_ranking_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_ranking(*args, **kwargs)
+
     def evaluate_ranking(self, all_stock_outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Main execution pipeline for entire universe sorting.
@@ -235,7 +239,7 @@ class RankingEngine(BaseDecisionEngine):
                         
                 # Cleanup tie breakers to keep payload clean
                 if "_tie_breakers" in stock_result:
-                    del stock_result["tie_breakers"]
+                    stock_result.pop("tie_breakers", None)
 
             return evaluated_stocks
 
@@ -393,8 +397,8 @@ class RankingEngine(BaseDecisionEngine):
             "risk_flags": risk_flags
         }
 
-        trace.steps_executed = ctx.steps
-        trace.inputs_parsed = parsed_inputs
+        object.__setattr__(trace, 'steps_executed', ctx.steps)
+        object.__setattr__(trace, 'inputs_parsed', parsed_inputs)
 
         result = self._build_output(
             status=DecisionStatusEnum.SUCCESS if is_permitted else DecisionStatusEnum.PARTIAL,
@@ -491,7 +495,7 @@ class RankingEngine(BaseDecisionEngine):
         elif cat == RankingCategory.IPO: window = RankingWindow.EVENT_DRIVEN
         elif cat in [RankingCategory.SWING, RankingCategory.BREAKOUT]: window = RankingWindow.SHORT_TERM
         elif cat == RankingCategory.DEFENSIVE: window = RankingWindow.MEDIUM_TERM
-        else: window = RankingWindow.OPEN
+        else: window = RankingWindow.MEDIUM
             
         return priority, window
 

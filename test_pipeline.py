@@ -1,41 +1,39 @@
+import time
 import logging
-from backend.pipeline.orchestrator import InstitutionalPipeline
+from backend.pipeline.ai_pipeline import MasterPipelineManager, enqueue_for_ai
 
-# লগিং সেটআপ যাতে টার্মিনালে আউটপুট দেখতে পান
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
-# ডামি ডেটা তৈরি
-dummy_l4_stock = {
-    "symbol": "RELIANCE",
-    "market_permission": "ALLOWED",
-    "conviction_score": 85.0,
-    "confidence_score": 90.0,
-    "overall_risk": 30.0,
-    "reward_quality": 80.0,
-    "entry_action": "EXECUTE",
-    "entry_quality": 88.0,
-    "holding_type": "COMPOUND",
-    "trend_score": 82.0,
-    "institutional_score": 88.0,
-    "fundamental_score": 92.0,
-    "regime_score": 75.0,
-    "recommendation": "STRONG_BUY"
-}
-
-dummy_portfolio = [] # আপাতত ফাঁকা পোর্টফোলিও
-macro_data = {"regime_score": 75.0, "market_state": "BULL", "systemic_risk": 20.0}
-
-# পাইপলাইন রান করানো
-if __name__ == "__main__":
-    print("Starting Pipeline Test...\n" + "-"*40)
-    orchestrator = InstitutionalPipeline()
-    result = orchestrator.execute_market_scan(
-        universe_l4_data=[dummy_l4_stock], 
-        current_portfolio=dummy_portfolio, 
-        available_cash_pct=100.0,
-        market_macro_data=macro_data
-    )
+def run_test():
+    print("\n" + "="*50)
+    print("🚀 STARTING ENTERPRISE PIPELINE TEST")
+    print("="*50 + "\n")
     
-    print("\n--- Final Dashboard Payload ---")
-    import json
-    print(json.dumps(result["dashboard"], indent=2))
+    manager = MasterPipelineManager()
+    manager.start()
+
+    # ২টো স্টক স্ট্রিমিং কিউ-তে ফেলা হলো
+    test_symbols = ["SUNPHARMA"]
+    for sym in test_symbols:
+        enqueue_for_ai(sym)
+
+    print("\n⏳ Waiting 45 seconds for the Streaming Pipeline to process all layers...\n")
+    time.sleep(45)
+
+    print("\n🛑 Initiating Graceful Shutdown for Streaming Workers...")
+    manager.stop()
+    manager.join()
+    
+    # 💥 স্ট্রিমিং শেষ, এবার চলবে ম্যাক্রো ইঞ্জিন!
+    print("\n🌍 Running End-of-Day Macro Engines (Ranking, Portfolio, Dashboard)...")
+    manager.generate_macro_reports()
+    
+    print("\n" + "="*50)
+    print("✅ TEST COMPLETED SUCCESSFULLY!")
+    print("="*50 + "\n")
+
+if __name__ == "__main__":
+    run_test()

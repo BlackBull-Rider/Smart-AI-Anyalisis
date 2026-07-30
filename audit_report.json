@@ -1,0 +1,3665 @@
+{
+    "trend": {
+        "stats": {
+            "total": 48,
+            "present": 28,
+            "missing": 20
+        },
+        "details": [
+            {
+                "field": "atr_14",
+                "value": "24.108777252673566",
+                "status": "OK"
+            },
+            {
+                "field": "ema_spread_slope",
+                "value": "-1.52004860686192",
+                "status": "OK"
+            },
+            {
+                "field": "trend_reliability",
+                "value": "0.04630143600317181",
+                "status": "OK"
+            },
+            {
+                "field": "ema_alignment",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "choch",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "adx_strong",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_active",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "micro",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "vwap_relation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "efficiency_ratio",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "structure_bos",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "macd_signal",
+                "value": "-5.37135565180607",
+                "status": "OK"
+            },
+            {
+                "field": "supertrend",
+                "value": "1337.6722631022506",
+                "status": "OK"
+            },
+            {
+                "field": "atr_expansion_mult",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ema_slope",
+                "value": "-0.5917323521205358",
+                "status": "OK"
+            },
+            {
+                "field": "noise_high",
+                "value": "5891.131006064037",
+                "status": "OK"
+            },
+            {
+                "field": "adx",
+                "value": "14.845875981466211",
+                "status": "OK"
+            },
+            {
+                "field": "noise_low",
+                "value": "233.97005253042326",
+                "status": "OK"
+            },
+            {
+                "field": "macd_line",
+                "value": "-6.89140425866799",
+                "status": "OK"
+            },
+            {
+                "field": "local",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "low",
+                "value": "1249.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "rsi",
+                "value": "42.245405400746755",
+                "status": "OK"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "liq_sweep",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "linreg_r2",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ema_50",
+                "value": "1315.9385371990668",
+                "status": "OK"
+            },
+            {
+                "field": "trend_efficiency_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "efficiency_ratio_excellent",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high",
+                "value": "1283.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "efficiency_ratio_good",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            },
+            {
+                "field": "vwap",
+                "value": "1403.4606768346644",
+                "status": "OK"
+            },
+            {
+                "field": "ema_20",
+                "value": "1299.203922912515",
+                "status": "OK"
+            },
+            {
+                "field": "score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "medium",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "macd_momentum",
+                "value": "-29.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "adx_slope",
+                "value": "-30.61417596047041",
+                "status": "OK"
+            },
+            {
+                "field": "climax_volume_mult",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pullback_health",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ema_200",
+                "value": "1380.6148244017959",
+                "status": "OK"
+            },
+            {
+                "field": "r2_fit",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "long",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ema_extension_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_active",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "momentum": {
+        "stats": {
+            "total": 37,
+            "present": 24,
+            "missing": 13
+        },
+        "details": [
+            {
+                "field": "atr_14",
+                "value": "24.108777252673566",
+                "status": "OK"
+            },
+            {
+                "field": "macd_histogram",
+                "value": "-1.52004860686192",
+                "status": "OK"
+            },
+            {
+                "field": "institutional_score",
+                "value": "31.796658447201505",
+                "status": "OK"
+            },
+            {
+                "field": "bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "fvg_active",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "divergence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "climax_vol_mult",
+                "value": "-0.7620620319619519",
+                "status": "OK"
+            },
+            {
+                "field": "adx_trend",
+                "value": "-1",
+                "status": "OK"
+            },
+            {
+                "field": "volume_confirmation",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "atr_expansion",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "macd_signal",
+                "value": "-5.37135565180607",
+                "status": "OK"
+            },
+            {
+                "field": "roc",
+                "value": "0.16458778476016422",
+                "status": "OK"
+            },
+            {
+                "field": "momentum",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "vol_expansion",
+                "value": "-21.96803034097912",
+                "status": "OK"
+            },
+            {
+                "field": "adx",
+                "value": "14.845875981466211",
+                "status": "OK"
+            },
+            {
+                "field": "momentum_consistency",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "macd_line",
+                "value": "-6.89140425866799",
+                "status": "OK"
+            },
+            {
+                "field": "local",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "rsi",
+                "value": "42.245405400746755",
+                "status": "OK"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "low",
+                "value": "1249.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "short",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "macd",
+                "value": "-6.89140425866799",
+                "status": "OK"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "liq_sweep",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "linreg_r2",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high",
+                "value": "1283.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            },
+            {
+                "field": "score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "momentum_quality",
+                "value": "0.04630143600317181",
+                "status": "OK"
+            },
+            {
+                "field": "compression_limit",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "long",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "momentum_persistence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_active",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "volatility": {
+        "stats": {
+            "total": 18,
+            "present": 9,
+            "missing": 9
+        },
+        "details": [
+            {
+                "field": "intensity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "atr_14",
+                "value": "24.108777252673566",
+                "status": "OK"
+            },
+            {
+                "field": "regime_persistence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "is_squeezing",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "medium",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "short",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "duration",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "extreme_low_percentile",
+                "value": "65.27777777777779",
+                "status": "OK"
+            },
+            {
+                "field": "atr_percentile",
+                "value": "51.19047619047619",
+                "status": "OK"
+            },
+            {
+                "field": "extreme_high_percentile",
+                "value": "82.93650793650794",
+                "status": "OK"
+            },
+            {
+                "field": "long",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "atr_z_score",
+                "value": "-1.3676707826542889",
+                "status": "OK"
+            },
+            {
+                "field": "macro",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "efficiency_ratio",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "volume": {
+        "stats": {
+            "total": 16,
+            "present": 9,
+            "missing": 7
+        },
+        "details": [
+            {
+                "field": "institutional",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "block_trade_proxy",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "low",
+                "value": "1249.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "dark_pool_proxy",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "divergence_type",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dark_pool_displacement_limit",
+                "value": "0.2916646987658537",
+                "status": "OK"
+            },
+            {
+                "field": "divergence_lookback",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high",
+                "value": "1283.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            },
+            {
+                "field": "high_delivery_pct",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "pattern": {
+        "stats": {
+            "total": 32,
+            "present": 7,
+            "missing": 25
+        },
+        "details": [
+            {
+                "field": "market_regime",
+                "value": "Neutral",
+                "status": "OK"
+            },
+            {
+                "field": "fallback_normal",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "triangle",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence_agreement",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "direction",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trend_alignment",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "detected",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "target",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "priority",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_confirmation",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "cup_handle",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "missing_l1_feature_base",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "failure",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "structural_integrity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "regime_weights",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "multipliers",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "efficiency",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_conf_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "atr_buffer",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "false_breakout_multipliers",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "continuation_breakout",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "feature_importance",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "atr",
+                "value": "24.108777252673566",
+                "status": "OK"
+            },
+            {
+                "field": "flag",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "stop_loss",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pattern_id",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "support_resistance": {
+        "stats": {
+            "total": 62,
+            "present": 26,
+            "missing": 36
+        },
+        "details": [
+            {
+                "field": "market_regime",
+                "value": "Neutral",
+                "status": "OK"
+            },
+            {
+                "field": "base_strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "retest_successful",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "swing_low",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "resistance_strength",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "channel_lower",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "low_volume_penalty",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "choch",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "confirmation_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "support_confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "neckline",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "false_breakout_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "order_block",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_selling",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "expected_continuation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "breakout_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "rectangle_lower",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "support_breakdown",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "support_strength",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "distance_to_resistance_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_confirmation",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "nearest_support",
+                "value": "1271.5999755859375",
+                "status": "OK"
+            },
+            {
+                "field": "resistance_available",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "market_phase",
+                "value": "Neutral",
+                "status": "OK"
+            },
+            {
+                "field": "channel_upper",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "institutional_breakout",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_expansion",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "triangle_lower",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "institutional_resistance",
+                "value": "1371.0999755859375",
+                "status": "OK"
+            },
+            {
+                "field": "breakdown_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bullish_breakout",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "smc_confluence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "nearest_resistance",
+                "value": "1328.0",
+                "status": "OK"
+            },
+            {
+                "field": "moderate_trend",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "swing_high",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "pattern_confidence",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "bullish_retest",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "breakdown_confirmation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "default_proximity_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "resistance_confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_support",
+                "value": "1253.199951171875",
+                "status": "OK"
+            },
+            {
+                "field": "support_available",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "retest_success",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trend_strength",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "volume_conf",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "retest_failure",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "breakout_confirmation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "regime_modifiers",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_sweep",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "breakout_pressure",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "distance_to_support_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "triangle_upper",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "retest_failed",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "max_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "breakout_clearance_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "rectangle_upper",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "support_holding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            }
+        ]
+    },
+    "smart_money": {
+        "stats": {
+            "total": 115,
+            "present": 12,
+            "missing": 103
+        },
+        "details": [
+            {
+                "field": "defaults",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_magnet",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bullish_fvg",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "conviction_multiplier",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "signal_hierarchy_routing",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "breaker_conversion",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_breakout_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "primary_smc_signal",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fresh_ob",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "bullish_choch",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "external_choch",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "mitigated_zone",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "primary_event",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_mitigated_penalty",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_pool_penalty",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "multi_variable_penalty_step",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weak_volume",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "lifecycle_factors",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "structural_shift_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "consensus_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "scoring_weights",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos_trend_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "buy_side_liquidity",
+                "value": "1328.0",
+                "status": "OK"
+            },
+            {
+                "field": "liquidity_pools_active",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "system_confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "feature_importance",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "external_bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "fvg_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_efficiency",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reversal_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "choch_base_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "internal_choch",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "compression_max",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trend_alignment",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_sweep_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reversal_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "structure_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "internal_bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "primary_zone",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bayesian_priors",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "choch_failure_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_decay_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_expiry_age",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trap_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fresh_zone",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_breaker_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "trap_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "moderate_confirmation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_max_decay",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "swing_failure",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_sweep",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "bearish_ob_detected",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bearish_choch",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reversal_base",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_partial_fill_max",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_base_efficiency",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "equal_high_low_conviction_hit",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "primary_institutional_bias",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bullish_bos",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "priority_order",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_unfilled_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bearish_bos",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_decay_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_unfilled_max",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "max_dampening_limit",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos_trend_penalty",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "counter_trend",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_inverse_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_presence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "choch_sweep_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_base_strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_partial_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "conflict_threshold",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_pool_strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence_reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_ratios",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "inducement",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sell_side_liquidity",
+                "value": "1271.5999755859375",
+                "status": "OK"
+            },
+            {
+                "field": "equal_high_low",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "action_thresholds",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "strong_volume",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fresh",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trend_continuation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "structure_alignment_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "continuation_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bullish_ob_detected",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "missing_feature_multiplier",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_stack_priority",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smart_money_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "feature",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_max_decay",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "liquidity_trap",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "continuation_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bearish_fvg",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "fvg",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "partial_fill",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ob_fresh_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_base_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "base_dampening_exponent",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "active_order_block",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "conflict_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "unfilled",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bayesian_correlation_correction",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos_base_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bos_volume_bonus",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fallback_weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_base_priority",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence_reliabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fvg_nested_multiplier",
+                "value": "None",
+                "status": "MISSING"
+            }
+        ]
+    },
+    "market_regime": {
+        "stats": {
+            "total": 46,
+            "present": 9,
+            "missing": 37
+        },
+        "details": [
+            {
+                "field": "outlier_penalty",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "emissions",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bull",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bear_strength",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "outlier_z_threshold",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "explanation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bull_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "zero_variance",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hmm_horizon_days",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "overall_market_regime",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hurst",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "current_ret",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "expected_move",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "scalars",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "er",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hmm",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "yang_zhang",
+                "value": "19.273371855285234",
+                "status": "OK"
+            },
+            {
+                "field": "risk_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "regime_confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "amihud_lookback",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "low",
+                "value": "1249.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "crisis_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "amihud",
+                "value": "6.193797576135285e-13",
+                "status": "OK"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "drawdown",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "tail_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "advance_decline_line",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bear",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "returns_series",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hmm_forward_bear",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high",
+                "value": "1283.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            },
+            {
+                "field": "sideways",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hmm_forward_bull",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "obv",
+                "value": "-364385793.0",
+                "status": "OK"
+            },
+            {
+                "field": "hmm_simulations",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volatility_score",
+                "value": "1.393682277362756",
+                "status": "OK"
+            },
+            {
+                "field": "student_t_dof",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "compression_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "transition_matrix",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            }
+        ]
+    },
+    "fundamental": {
+        "stats": {
+            "total": 147,
+            "present": 40,
+            "missing": 107
+        },
+        "details": [
+            {
+                "field": "investment_grade",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "interest_coverage",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "operating_cash_flow",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "depreciation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "net_income",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "revenue_growth_yoy",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roic",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pb_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "free_cash_flow",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fundamental_confidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "public_holding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "valuation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "book_value_per_share",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "piotroski_f_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ownership_stability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_avg_ev_ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "balance_sheet",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "current_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fcf_growth_yoy",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "equity_risk_premium",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roe",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fii_change",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "forensic",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "overall_fundamental_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "days_sales_outstanding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "altman_z_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_change",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "earnings_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "explanation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "wacc_default",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "terminal_growth_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "overall_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "peg_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "scalars",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roce_excellent",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "eps_growth_yoy",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "total_debt",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "efficiency",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "audited_financials",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "cash_flow",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "interest_expense",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pe_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "monte_carlo_simulations",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dii_change",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ev_ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "quick_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "corporate_tax_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "capital_allocation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "total_equity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "days_payable_outstanding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "current_assets",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "operating_margin",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "profitability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "current_liabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "cash_stability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "shares_outstanding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sga_expense",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "working_capital",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "missing_feature",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fii_holding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "days_inventory_outstanding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roce",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "growth_stability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "price_to_sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "capital_efficiency",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dii_holding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_avg_pe",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            },
+            {
+                "field": "long_term_debt",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "profit_growth_yoy",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gross_margin",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dividend_yield",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "market_cap",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "retained_earnings",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "total_liabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "receivables",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "financial_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "risk_free_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ebit",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "eps",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "projected_growth",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "manipulation_flag",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_holding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "cash_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "debt_to_equity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "beta",
+                "value": "0.9999999999999999",
+                "status": "OK"
+            },
+            {
+                "field": "business_moat",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "total_assets",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "goodwill",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "margin_of_safety",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_pledge",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "shareholding",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "capex",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "business_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dcf_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roa",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "insolvency_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "growth",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "quick_ratio",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "book_value",
+                "value": "668.045",
+                "status": "OK"
+            },
+            {
+                "field": "pe",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "dividend_yield",
+                "value": "0.47",
+                "status": "OK"
+            },
+            {
+                "field": "market_cap",
+                "value": "17294499512320.0",
+                "status": "OK"
+            },
+            {
+                "field": "pb_ratio",
+                "value": "1.9130448",
+                "status": "OK"
+            },
+            {
+                "field": "eps",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "dii_holding",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "shares_outstanding",
+                "value": "13532472634.0",
+                "status": "OK"
+            },
+            {
+                "field": "fii_holding",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "book_value_per_share",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "promoter_holding",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "debt_to_equity",
+                "value": "36.653",
+                "status": "OK"
+            },
+            {
+                "field": "beta",
+                "value": "0.184",
+                "status": "OK"
+            },
+            {
+                "field": "pb",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "roce",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "pe_ratio",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "current_ratio",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "debt_equity",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "roe",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "profit_growth_yoy",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "operating_cash_flow",
+                "value": "1921130000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "revenue_growth_yoy",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "net_income",
+                "value": "807750000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "gross_margin",
+                "value": "26.82151304819884",
+                "status": "OK"
+            },
+            {
+                "field": "total_equity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ebitda",
+                "value": "2049060000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "roic",
+                "value": "11.194018056994159",
+                "status": "OK"
+            },
+            {
+                "field": "operating_margin",
+                "value": "10.475073351687412",
+                "status": "OK"
+            },
+            {
+                "field": "total_liabilities",
+                "value": "0.0",
+                "status": "OK"
+            },
+            {
+                "field": "ebit",
+                "value": "1472180000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "free_cash_flow",
+                "value": "691970000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "working_capital",
+                "value": "529950000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "total_debt",
+                "value": "3980000000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "total_assets",
+                "value": "21781400000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "roce",
+                "value": "38967000000000.0",
+                "status": "OK"
+            },
+            {
+                "field": "net_margin",
+                "value": "6.76838962348288",
+                "status": "OK"
+            },
+            {
+                "field": "sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roa",
+                "value": "3.70843931060446",
+                "status": "OK"
+            },
+            {
+                "field": "roe",
+                "value": "8.934991095428249",
+                "status": "OK"
+            }
+        ]
+    },
+    "ipo": {
+        "stats": {
+            "total": 84,
+            "present": 2,
+            "missing": 82
+        },
+        "details": [
+            {
+                "field": "promoter_holding_pre",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "overall_ipo_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "operating_cash_flow",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "subscription_hni",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roic",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gmp",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "issue_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "p50_listing_estimate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "free_cash_flow",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "valuation_pe",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "anchor_allocation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "composite_listing",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "grey_market_collapse_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "strong_apply",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "intraday_high",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_pe",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "equity_risk_premium",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "composite_opportunity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "top_anchor_concentration",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gmp_reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gmp_persistence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "explanation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "scalars",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_ev_sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roce_excellent",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "listing_gain",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "total_debt",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "listing_price",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "negative_equity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "domestic_vs_foreign_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_holding_post",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pe_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "mf_anchor_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "base_weights",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "last_day_spike",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "watch",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "monte_carlo_sims",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "opening_auction_volume",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "valuation_ev_ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "p10_listing_estimate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "category_concentration",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "p90_listing_estimate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gmp_momentum",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "float_shares",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "net_profit",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "roce_good",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "action_thresholds",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "valuation_dcf",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "lockin_days",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "vwap",
+                "value": "1403.4606768346644",
+                "status": "OK"
+            },
+            {
+                "field": "sovereign_anchor_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "composite_demand",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_risk_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "overall_ipo_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "subscription_qib",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "missing_core_feature",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "valuation_ev_sales",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "financial_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "risk_free_rate",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "eps",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "profit_growth",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "debt_to_equity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "beta",
+                "value": "0.9999999999999999",
+                "status": "OK"
+            },
+            {
+                "field": "overall_subscription",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "market_sentiment_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smart_money_participation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "composite_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "issue_price",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "margin_of_safety",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "cash_equivalents",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "composite_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gmp_collapse",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "sector_ev_ebitda",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "subscription_velocity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "financials",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "subscription_retail",
+                "value": "None",
+                "status": "MISSING"
+            }
+        ]
+    },
+    "candle": {
+        "stats": {
+            "total": 41,
+            "present": 19,
+            "missing": 22
+        },
+        "details": [
+            {
+                "field": "gap_up",
+                "value": "0",
+                "status": "OK"
+            },
+            {
+                "field": "mtf",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "lower_wick",
+                "value": "15.199951171875",
+                "status": "OK"
+            },
+            {
+                "field": "bear_sequence",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "choch",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "bos",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "bayesian",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trend_direction",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "efficiency_ratio",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "priors",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "upper_wick",
+                "value": "5.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "emotion",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bull_sequence",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "normalized_volatility",
+                "value": "None",
+                "status": "OK"
+            },
+            {
+                "field": "body_expansion_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "body_pct",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "low",
+                "value": "1249.800048828125",
+                "status": "OK"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ltf_suffixes",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "continuation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "trap_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "conflict_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "high",
+                "value": "1283.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "liquidity_sweep",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "open",
+                "value": "1265.0",
+                "status": "OK"
+            },
+            {
+                "field": "score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "gap_down",
+                "value": "1",
+                "status": "OK"
+            },
+            {
+                "field": "probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "atr",
+                "value": "24.108777252673566",
+                "status": "OK"
+            },
+            {
+                "field": "clv",
+                "value": "0.6785697417993032",
+                "status": "OK"
+            },
+            {
+                "field": "htf_suffixes",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume_ratio",
+                "value": "77.33917076400671",
+                "status": "OK"
+            },
+            {
+                "field": "close",
+                "value": "1278.0",
+                "status": "OK"
+            },
+            {
+                "field": "reversal",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "mean_reverting",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bayesian",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_profiles",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "correlation_discount_factor",
+                "value": "None",
+                "status": "MISSING"
+            }
+        ]
+    },
+    "institutional": {
+        "stats": {
+            "total": 65,
+            "present": 3,
+            "missing": 62
+        },
+        "details": [
+            {
+                "field": "large_institutional_sell",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bayesian_damping_power",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "speculative_volume",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "distribution_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "category",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "long_term_accumulation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "strong_dist",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "delivery",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "accumulation_probability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smartmoney",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fii_mild",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bayesian",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliability",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smart_money_weak",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dii_score_multiplier",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "large_institutional_buy",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "pressure_multiplier",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_explanation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fii",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dii",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dominant_buyer",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "scalars",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bulk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "missing_feature",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "reliabilities",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "participation_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_control_min",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bulk_selling",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dist",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "increasing_ownership",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "polarity",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_conviction",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "volume",
+                "value": "9817000.0",
+                "status": "OK"
+            },
+            {
+                "field": "selling_pressure",
+                "value": "5.4000244140625",
+                "status": "OK"
+            },
+            {
+                "field": "delivery_trend_weight",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "block",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "accumulation_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "hierarchy_multipliers",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "bulk_buying",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "delivery_quality",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "acc",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "action_thresholds",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "conflict_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_control_norm",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smart_money_strong",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "primary_institutional_event",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "fii_strong",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "smart_money",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "consensus_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "flow_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "float_absorption_threshold",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "dominant_seller",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "ownership_risk",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "strong_acc",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "institutional_bias",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "prior_accumulation",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_mild",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "promoter_strong",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "distribution_score",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "buying_pressure",
+                "value": "28.199951171875",
+                "status": "OK"
+            },
+            {
+                "field": "block_market_cap_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "likelihood_ratio",
+                "value": "None",
+                "status": "MISSING"
+            },
+            {
+                "field": "evidence",
+                "value": "None",
+                "status": "MISSING"
+            }
+        ]
+    }
+}

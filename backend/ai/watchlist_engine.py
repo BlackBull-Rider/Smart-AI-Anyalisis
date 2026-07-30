@@ -170,6 +170,10 @@ class WatchlistEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_watchlist_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_watchlist(*args, **kwargs)
+
     def evaluate_watchlist(self, stock_output: dict[str, Any] | None) -> dict[str, Any]:
         """
         Main execution pipeline for Opportunity Monitoring and Trigger Definition.
@@ -312,8 +316,8 @@ class WatchlistEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS
             status_msg = "Opportunity successfully mapped to monitoring engine."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = parsed_inputs
+            object.__setattr__(trace, 'steps_executed', ctx.steps)
+            object.__setattr__(trace, 'inputs_parsed', parsed_inputs)
 
             return self._build_output(
                 status=status_enum,

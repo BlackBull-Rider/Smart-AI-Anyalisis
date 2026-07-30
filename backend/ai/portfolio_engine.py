@@ -172,6 +172,10 @@ class PortfolioEngine(BaseDecisionEngine):
     def __init__(self, config: DecisionConfig | None = None):
         super().__init__(config or get_portfolio_profile())
 
+    # Injected evaluate alias for BaseDecisionEngine compatibility
+    def evaluate(self, *args, **kwargs) -> Any:
+        return self.evaluate_portfolio(*args, **kwargs)
+
     def evaluate_portfolio(self, portfolio: list[dict[str, Any]], watchlist: list[dict[str, Any]], cash_pct: float) -> dict[str, Any]:
         """
         Main execution pipeline for Portfolio Intelligence.
@@ -321,8 +325,8 @@ class PortfolioEngine(BaseDecisionEngine):
             status_enum = DecisionStatusEnum.SUCCESS
             status_msg = "Holistic Portfolio Intelligence generated successfully."
 
-            trace.steps_executed = ctx.steps
-            trace.inputs_parsed = len(portfolio) + len(watchlist)
+            object.__setattr__(trace, 'steps_executed', ctx.steps)
+            object.__setattr__(trace, 'inputs_parsed', len(portfolio) + len(watchlist))
 
             return self._build_output(
                 status=status_enum,
