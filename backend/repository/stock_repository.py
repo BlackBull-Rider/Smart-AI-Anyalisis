@@ -142,8 +142,9 @@ class StockRepository:
         existing_cols = {c['name'].lower() for c in db_cols_info}
 
         if not existing_cols:
-            col_defs = [f'"{k}" {schema_types[k]}' for k in schema_types.keys()]
-            pk_str = f"PRIMARY KEY({', '.join([f'"{pk}"' for pk in pk_cols])})"
+            # ১৪৬ নম্বর লাইনটিকে এভাবে লেখ:
+            quoted_cols = [f'"{pk}"' for pk in pk_cols]
+            pk_str = f"PRIMARY KEY({', '.join(quoted_cols)})"
             create_sql = f"CREATE TABLE {table} ({', '.join(col_defs)}, {pk_str})"
             db.execute(create_sql)
             logger.info(f"Dynamically created table: {table}")
