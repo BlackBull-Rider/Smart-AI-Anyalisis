@@ -1,696 +1,430 @@
-import logging
-import re
+"""
+GREEN BULL RIDER V6
+Layer-2 Quantitative Analyzer: Volume & Flow Engine
+
+This module implements a deterministic, quantitatively rigorous evaluation of 
+volume, money flow, liquidity, and accumulation/distribution proxies.
+It enforces strict database provenance, robust multi-window divergence analysis,
+independent evidence tracing, and strict numerical safeguards. 
+Institutional activity and liquidity are derived exclusively as behavioral proxies.
+"""
+
+import math
 import numpy as np
 import pandas as pd
-from typing import Dict, List, TypedDict, Optional, Tuple
+from typing import Dict, Any, Optional
 
-try:
-    from numba import jit
-    NUMBA_AVAILABLE = True
-except ImportError:
-    NUMBA_AVAILABLE = False
-    def jit(*args, **kwargs):
-        def wrapper(func):
-            return func
-        return wrapper
-
-logger = logging.getLogger(__name__)
-
-# ==============================================================================
-# CONFIGURATION & CONSTANTS
-# ==============================================================================
-
-EPSILON = 1e-9
-
-# External configs can override this in production via a config.yaml loader
-VOLUME_CONFIG = {
-    "lookbacks": {
-        "micro": 3,
-        "short": 10,
-        "medium": 20,
-        "long": 50,
-        "macro": 100,
-        "institutional": 252
-    },
-    "thresholds": {
-        "climax_vol_mult": 3.0,
-        "explosive_vol_mult": 2.0,
-        "expanding_vol_mult": 1.2,
-        "high_delivery_pct": 60.0,
-        "extreme_zscore": 2.5,
-        "divergence_lookback": 20,
-        "dark_pool_displacement_limit": 0.15 # Max ATR fraction for dark pool proxy
-    },
-    "mtf_weights": {
-        "_M": 0.30, "_W": 0.25, "_D": 0.20, "_4H": 0.10, "_1H": 0.05, "_15m": 0.05, "_5m": 0.05
-    },
-    "oscillator_weights": {
-        "obv": 0.20, "cmf": 0.15, "adl": 0.15, "vpt": 0.10, 
-        "mfi": 0.10, "money_flow": 0.10, "force_index": 0.10, "accdist": 0.10
-    }
-}
-
-# ==============================================================================
-# TYPE DEFINITIONS
-# ==============================================================================
-
-class EvidenceItem(TypedDict):
-    type: str
-    weight: float
-    value: str
-    polarity: int
-
-class VolumeConfirmationResult(TypedDict):
-    score: float
-    confidence: float
-    status: str
-    evidence: List[EvidenceItem]
-
-class VolumeExplosionResult(TypedDict):
-    score: float
-    confidence: float
-    status: str
-    evidence: List[EvidenceItem]
-
-class DeliveryAnalysisResult(TypedDict):
-    score: float
-    confidence: float
-    status: str
-    evidence: List[EvidenceItem]
-
-class SmartVolumeResult(TypedDict):
-    institutional_probability: float
-    retail_probability: float
-    confidence: float
-    dominance: str
-    evidence: List[EvidenceItem]
-
-class VolumeDivergenceResult(TypedDict):
-    divergence_type: str
-    strength: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class MTFVolumeResult(TypedDict):
-    alignment_score: float
-    dominant_trend: str
-    confidence: float
-    timeframes: Dict[str, str]
-
-class AdvancedVolumeMetrics(TypedDict):
-    volume_quality: float
-    volume_efficiency: float
-    participation_regime: str
-    smart_participation_index: float
-    retail_participation_index: float
-    volume_stability: float
-    volume_persistence: float
-    volume_dry_up: bool
-    volume_regime_shift: bool
-    liquidity_absorption: float
-    volume_compression_score: float
-    volume_expansion_probability: float
-    block_trade_proxy: bool
-    dark_pool_proxy: bool
-    volume_fractal_index: float
-
-class VolumeAnalysisResult(TypedDict):
-    volume_confirmation: VolumeConfirmationResult
-    volume_explosion: VolumeExplosionResult
-    delivery_analysis: DeliveryAnalysisResult
-    smart_volume: SmartVolumeResult
-    volume_divergence: VolumeDivergenceResult
-    multi_timeframe: MTFVolumeResult
-    advanced_metrics: AdvancedVolumeMetrics
-
-# ==============================================================================
-# NUMBA JIT ACCELERATED ENGINES
-# ==============================================================================
-
-@jit(nopython=True, cache=True)
-def _find_pivots_jit(arr: np.ndarray, window: int) -> Tuple[List[int], List[int]]:
-    """Identifies indices of Pivot Highs and Pivot Lows."""
-    highs = []
-    lows = []
-    n = len(arr)
-    if n < window * 2 + 1:
-        return highs, lows
-        
-    for i in range(window, n - window):
-        is_high = True
-        is_low = True
-        for j in range(i - window, i + window + 1):
-            if i == j: continue
-            if arr[i] <= arr[j]: is_high = False
-            if arr[i] >= arr[j]: is_low = False
-        
-        if is_high: highs.append(i)
-        if is_low: lows.append(i)
-        
-    return highs, lows
-
-@jit(nopython=True, cache=True)
-def _pivot_divergence_engine_jit(price: np.ndarray, osc: np.ndarray, lookback: int) -> Tuple[float, int]:
-    """
-    Pivot-based Divergence Scanner. 
-    1: RegBull, -1: RegBear, 2: HidBull, -2: HidBear
-    """
-    n = len(price)
-    if n < lookback: return 0.0, 0
-    
-    p_window = price[-lookback:]
-    o_window = osc[-lookback:]
-    
-    p_highs, p_lows = _find_pivots_jit(p_window, 2)
-    o_highs, o_lows = _find_pivots_jit(o_window, 2)
-    
-    # Needs at least 2 pivots to compare
-    if len(p_highs) >= 2 and len(o_highs) >= 2:
-        last_p_high, prev_p_high = p_window[p_highs[-1]], p_window[p_highs[-2]]
-        last_o_high, prev_o_high = o_window[o_highs[-1]], o_window[o_highs[-2]]
-        
-        # Regular Bearish
-        if last_p_high > prev_p_high and last_o_high < prev_o_high:
-            str_val = min(((prev_o_high - last_o_high) / (np.abs(prev_o_high) + EPSILON)) * 200.0, 100.0)
-            return str_val, -1
-            
-        # Hidden Bearish
-        if last_p_high < prev_p_high and last_o_high > prev_o_high:
-            str_val = min(((last_o_high - prev_o_high) / (np.abs(prev_o_high) + EPSILON)) * 150.0, 100.0)
-            return str_val, -2
-
-    if len(p_lows) >= 2 and len(o_lows) >= 2:
-        last_p_low, prev_p_low = p_window[p_lows[-1]], p_window[p_lows[-2]]
-        last_o_low, prev_o_low = o_window[o_lows[-1]], o_window[o_lows[-2]]
-        
-        # Regular Bullish
-        if last_p_low < prev_p_low and last_o_low > prev_o_low:
-            str_val = min(((last_o_low - prev_o_low) / (np.abs(prev_o_low) + EPSILON)) * 200.0, 100.0)
-            return str_val, 1
-            
-        # Hidden Bullish
-        if last_p_low > prev_p_low and last_o_low < prev_o_low:
-            str_val = min(((prev_o_low - last_o_low) / (np.abs(prev_o_low) + EPSILON)) * 150.0, 100.0)
-            return str_val, 2
-
-    return 0.0, 0
-
-# ==============================================================================
-# VOLUME ANALYZER ENGINE (PURE LAYER-2)
-# ==============================================================================
 class VolumeAnalyzer:
-    # ==============================================================================
-    # EXPLICIT CONTRACT: মাস্টার অবজারভারের জন্য
-    # ==============================================================================
-    EXPECTED_SCHEMA = [
-        'relative_volume', 'volume_zscore', 'volume_percentile', 
-        'delivery_percent', 'delivery_quantity', 'vwap', 
-        'obv', 'cmf', 'adl', 'vpt', 'mfi', 'money_flow', 
-        'force_index', 'accdist', 'nvi', 'pvi'
-    ]
-
-    def __init__(self):
-        self.req_cols = ['open', 'high', 'low', 'close', 'volume']
-        self._feature_cache: Dict[str, Optional[str]] = {}
-        self.mtf_suffixes = ['_5m', '_15m', '_1H', '_4H', '_D', '_W', '_M']
-
-    def _resolve_feature(self, df: pd.DataFrame, base_name: str) -> Optional[str]:
-        """Robust Regex/Alias based O(1) feature resolver."""
-        cache_key = base_name.lower()
-        if cache_key in self._feature_cache:
-            return self._feature_cache[cache_key]
-            
-        # Match exact, or separated by underscore/dot (e.g., momentum.obv, obv_14)
-        pattern = re.compile(rf'(^|\.){re.escape(base_name)}(_|$)')
-        for col in df.columns:
-            if pattern.search(col.lower()) or col.lower() == cache_key:
-                self._feature_cache[cache_key] = col
-                return col
-                
-        self._feature_cache[cache_key] = None
-        return None
-
-    def _get_val(self, df: pd.DataFrame, base_name: str, default: float = 0.0) -> float:
-        col = self._resolve_feature(df, base_name)
-        if col and pd.notna(df[col].iloc[-1]): 
-            return float(df[col].iloc[-1])
-        return default
-
-    def _validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        missing = [col for col in self.req_cols if col not in df.columns]
-        if missing:
-            logger.error(f"VolumeAnalyzer missing core OHLCV: {missing}")
-            raise ValueError(f"VolumeAnalyzer requires basic columns: {missing}")
-
-        working_df = df.copy()
-        num_cols = working_df.select_dtypes(include=[np.number]).columns
-        if np.isinf(working_df[num_cols]).any().any():
-            working_df[num_cols] = working_df[num_cols].replace([np.inf, -np.inf], np.nan)
-
-        working_df.ffill(inplace=True)
-        working_df.bfill(inplace=True)
-        return working_df
-
-    def _get_internal_trend_proxy(self, df: pd.DataFrame) -> int:
-        """Internal robust trend proxy if L3 trend is unavailable."""
-        ema_20 = self._get_val(df, 'ema_20')
-        vwap = self._get_val(df, 'vwap')
-        close = df['close'].iloc[-1]
-        
-        bull_score = sum([close > ema_20, close > vwap, df['close'].iloc[-1] > df['close'].iloc[-10]])
-        if bull_score >= 2: return 1
-        elif bull_score == 0: return -1
-        return 0
-
-    def analyze(self, df: pd.DataFrame) -> VolumeAnalysisResult:
-        safe_df = self._validate_data(df)
-        eval_len = VOLUME_CONFIG["lookbacks"]["institutional"]
-        working_df = safe_df.tail(min(len(safe_df), eval_len))
-
-        trend_dir = self._get_internal_trend_proxy(working_df)
-
-        conf_res = self._analyze_confirmation(working_df, trend_dir)
-        expl_res = self._analyze_explosion(working_df)
-        del_res = self._analyze_delivery(working_df)
-        div_res = self._analyze_divergence(working_df)
-        mtf_res = self._analyze_mtf(working_df)
-        
-        adv_metrics = self._analyze_advanced_metrics(working_df, conf_res, expl_res, del_res, div_res)
-        smart_res = self._analyze_smart_volume(working_df, conf_res, expl_res, del_res, div_res, mtf_res, adv_metrics)
-
-        return {
-            "volume_confirmation": conf_res,
-            "volume_explosion": expl_res,
-            "delivery_analysis": del_res,
-            "smart_volume": smart_res,
-            "volume_divergence": div_res,
-            "multi_timeframe": mtf_res,
-            "advanced_metrics": adv_metrics
+    def analyze(self, feature_history: pd.DataFrame, fundamental_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Executes the final-tier Volume & Flow quantitative engine over historical features.
+        """
+        # =====================================================================
+        # 0. STRICT OUTPUT CONTRACT (FALLBACK)
+        # =====================================================================
+        fallback = {
+            "volume_analyzer": {
+                "confidence": 0.0,
+                "accumulation": 0.0,
+                "distribution": 0.0,
+                "quality": 0.0,
+                "quality_status": "low",
+                "confirmation": 0.0,
+                "confirmation_status": "divergence",
+                "institutional": 0.0,
+                "institutional_status": "outflow",
+                "liquidity": 0.0,
+                "liquidity_status": "dry",
+                "volume_explosion": 0.0,
+                "volume_explosion_status": "low",
+                "evidence": [
+                    {
+                        "category": "Volume",
+                        "message": "Insufficient valid historical data for quantitative volume analysis.",
+                        "reliability": 0.0,
+                        "likelihood_ratio": 1.0
+                    }
+                ]
+            }
         }
 
-    # --------------------------------------------------------------------------
-    # 1. VOLUME CONFIRMATION
-    # --------------------------------------------------------------------------
-    def _analyze_confirmation(self, df: pd.DataFrame, trend_dir: int) -> VolumeConfirmationResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        max_possible_weight = 0.0
-        active_weight = 0.0
+        if feature_history is None or feature_history.empty:
+            return fallback
 
-        features = [
-            ('obv', 15.0), ('cmf', 15.0), ('vpt', 10.0), ('mfi', 10.0),
-            ('force_index', 10.0), ('adl', 15.0), ('money_flow', 10.0),
-            ('nvi', 5.0), ('pvi', 5.0), ('accdist', 5.0)
+        df = feature_history.copy()
+        # Clean explicit corruptions
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        # Fix negative/zero volumes which are market data errors
+        if 'volume' in df.columns:
+            df.loc[df['volume'] <= 0, 'volume'] = np.nan
+
+        if 'close' not in df.columns or 'volume' not in df.columns or df['volume'].isna().all():
+            fallback["volume_analyzer"]["evidence"][0]["message"] = "Critical price or valid volume columns missing."
+            return fallback
+
+        history_length = len(df)
+        if history_length < 10:
+            fallback["volume_analyzer"]["evidence"][0]["message"] = f"Historical depth ({history_length}) insufficient for statistical volume bounds."
+            return fallback
+
+        # Ensure required universe columns exist (initialize missing as NaN to preserve provenance)
+        universe_cols = [
+            'open', 'high', 'low', 'close', 
+            'volume', 'rvol_20', 'obv', 'obv_roc', 'cmf_20', 'mfi_14', 'delta_volume',
+            'atr_14', 'bb_width', 'bb_percent_b', 'bb_squeeze'
         ]
+        for c in universe_cols:
+            if c not in df.columns:
+                df[c] = np.nan
 
-        for feat, weight in features:
-            max_possible_weight += weight
-            col = self._resolve_feature(df, feat)
-            if col and len(df) > 1:
-                active_weight += weight
-                val, prev_val = df[col].iloc[-1], df[col].iloc[-2]
-                
-                if feat in ['cmf', 'money_flow']:
-                    aligned = 1 if (val > 0 and trend_dir == 1) else -1 if (val < 0 and trend_dir == -1) else 0
-                elif feat == 'mfi':
-                    aligned = 1 if (val > 50 and trend_dir == 1) else -1 if (val < 50 and trend_dir == -1) else 0
-                else:
-                    slope = val - prev_val
-                    aligned = 1 if (slope > 0 and trend_dir == 1) else -1 if (slope < 0 and trend_dir == -1) else 0
-                
-                if aligned == 1:
-                    score += weight
-                    evidence.append({"type": feat.upper(), "weight": weight, "value": f"Aligned with Trend", "polarity": 1})
-                elif aligned == -1:
-                    score -= weight
-                    evidence.append({"type": feat.upper(), "weight": weight, "value": f"Against Trend", "polarity": -1})
-                else:
-                    evidence.append({"type": feat.upper(), "weight": weight, "value": f"Neutral/Divergent", "polarity": 0})
+        # Extraction of Latest Scalars (Safeguarded)
+        current_close = float(df['close'].iloc[-1])
+        current_open = float(df['open'].iloc[-1]) if not pd.isna(df['open'].iloc[-1]) else current_close
+        current_high = float(df['high'].iloc[-1]) if not pd.isna(df['high'].iloc[-1]) else current_close
+        current_low = float(df['low'].iloc[-1]) if not pd.isna(df['low'].iloc[-1]) else current_close
+        current_vol = float(df['volume'].iloc[-1]) if not pd.isna(df['volume'].iloc[-1]) else 0.0
 
-        # VWAP & Relative Volume Validation
-        vwap_col = self._resolve_feature(df, 'vwap')
-        rvol_col = self._resolve_feature(df, 'relative_volume')
-        if vwap_col and rvol_col and pd.notna(df[rvol_col].iloc[-1]):
-            w = 15.0
-            max_possible_weight += w
-            active_weight += w
+        if current_vol == 0.0:
+            fallback["volume_analyzer"]["evidence"][0]["message"] = "Latest volume is zero or invalid. Analysis aborted."
+            return fallback
+
+        # Robust True Range
+        prev_close = df['close'].shift(1).fillna(current_open)
+        tr_series = np.maximum(df['high'] - df['low'], 
+                    np.maximum(abs(df['high'] - prev_close), abs(df['low'] - prev_close)))
+        current_tr = float(tr_series.iloc[-1]) if not pd.isna(tr_series.iloc[-1]) else (current_high - current_low)
+        
+        # ATR Fallback
+        atr_val = df['atr_14'].iloc[-1]
+        if pd.isna(atr_val) or atr_val <= 0:
+            atr_val = current_tr if current_tr > 0 else (current_close * 0.01 + 1e-9)
+        atr_val = float(atr_val)
+
+        # =====================================================================
+        # 1. ROBUST VOLUME NORMALIZATION & PROVENANCE
+        # =====================================================================
+        vol_series = df['volume']
+        
+        # Volume Z-Score using Expanding + Rolling blend for statistical rigor
+        exp_med_vol = vol_series.expanding(min_periods=5).median()
+        roll_med_vol = vol_series.rolling(window=50, min_periods=5).median()
+        blended_med = (exp_med_vol * 0.3) + (roll_med_vol * 0.7)
+        
+        mad_vol = (vol_series - blended_med).abs().rolling(window=50, min_periods=5).median()
+        mad_safe = np.where(mad_vol == 0, blended_med * 0.1 + 1e-9, mad_vol)
+        vol_z_series = (vol_series - blended_med) / (1.4826 * mad_safe + 1e-9)
+        current_vol_z = 0.0 if pd.isna(vol_z_series.iloc[-1]) else float(vol_z_series.iloc[-1])
+
+        # DB-Supplied RVOL Validation vs Calculated Proxy
+        db_rvol = df['rvol_20'].iloc[-1]
+        roll_mean_vol = vol_series.rolling(window=20, min_periods=5).mean()
+        derived_rvol = float((vol_series.iloc[-1] / (roll_mean_vol.iloc[-1] + 1e-9))) if not pd.isna(roll_mean_vol.iloc[-1]) else 1.0
+        
+        rvol_is_db_valid = not pd.isna(db_rvol) and (0.01 <= db_rvol <= 100.0)
+        current_rvol = float(db_rvol) if rvol_is_db_valid else derived_rvol
+
+        # =====================================================================
+        # 2. INDEPENDENT FLOW EVIDENCE & DISPERSION ENGINE
+        # =====================================================================
+        flow_features_available = 0
+        total_flow_features = 5.0
+        
+        acc_signals = []
+        dist_signals = []
+        raw_signals = [] # For dispersion tracking
+
+        # A. Close Location Value (CLV)
+        price_range = (df['high'] - df['low']).replace(0, np.nan)
+        clv = ((df['close'] - df['low']) - (df['high'] - df['close'])) / price_range
+        clv = clv.fillna(0.0)
+        curr_clv = float(clv.iloc[-1])
+        raw_signals.append(curr_clv)
+        flow_features_available += 1
+        if curr_clv > 0.1: acc_signals.append(curr_clv)
+        elif curr_clv < -0.1: dist_signals.append(abs(curr_clv))
+
+        # B. Chaikin Money Flow (CMF)
+        cmf_val = df['cmf_20'].iloc[-1]
+        if not pd.isna(cmf_val):
+            cmf_norm = float(np.clip(cmf_val, -1.0, 1.0))
+            raw_signals.append(cmf_norm)
+            flow_features_available += 1
+            if cmf_norm > 0.05: acc_signals.append(cmf_norm)
+            elif cmf_norm < -0.05: dist_signals.append(abs(cmf_norm))
+
+        # C. Money Flow Index (MFI) - Regime scaled (-1 to 1)
+        mfi_val = df['mfi_14'].iloc[-1]
+        if not pd.isna(mfi_val):
+            mfi_norm = float((mfi_val - 50.0) / 50.0)
+            raw_signals.append(mfi_norm)
+            flow_features_available += 1
+            if mfi_norm > 0.1: acc_signals.append(mfi_norm)
+            elif mfi_norm < -0.1: dist_signals.append(abs(mfi_norm))
+
+        # D. OBV Momentum (Robust Z-Score)
+        obv_roc = df['obv_roc']
+        if not obv_roc.isna().all():
+            obv_roc_med = obv_roc.rolling(50, min_periods=5).median()
+            obv_roc_mad = (obv_roc - obv_roc_med).abs().rolling(50, min_periods=5).median()
+            obv_safe_mad = np.where(obv_roc_mad == 0, obv_roc_med.abs() * 0.1 + 1e-9, obv_roc_mad)
+            obv_z = (obv_roc - obv_roc_med) / (1.4826 * obv_safe_mad + 1e-9)
+            if not pd.isna(obv_z.iloc[-1]):
+                obv_norm = float(np.tanh(obv_z.iloc[-1] / 2.0))
+                raw_signals.append(obv_norm)
+                flow_features_available += 1
+                if obv_norm > 0.1: acc_signals.append(obv_norm)
+                elif obv_norm < -0.1: dist_signals.append(abs(obv_norm))
+
+        # E. Delta Volume (Normalized)
+        delta_vol = df['delta_volume'].iloc[-1]
+        if not pd.isna(delta_vol):
+            delta_norm = float(np.clip(delta_vol / current_vol, -1.0, 1.0))
+            raw_signals.append(delta_norm)
+            flow_features_available += 1
+            if delta_norm > 0.05: acc_signals.append(delta_norm)
+            elif delta_norm < -0.05: dist_signals.append(abs(delta_norm))
+
+        # Cross-factor agreement
+        flow_dispersion = float(np.std(raw_signals)) if len(raw_signals) > 1 else 1.0
+        agreement_factor = float(np.clip(1.0 - flow_dispersion, 0.0, 1.0))
+
+        # =====================================================================
+        # 3. VOLUME EXPLOSION & REGIME AWARENESS
+        # =====================================================================
+        # Bounded sigmoidal anomaly detection
+        z_explosion = 100.0 * (1.0 / (1.0 + math.exp(-(current_vol_z - 1.2) * 2.0)))
+        rvol_explosion = 100.0 * (1.0 - math.exp(-max(0.0, current_rvol - 1.0)))
+        volume_explosion = min(100.0, max(0.0, (z_explosion * 0.7) + (rvol_explosion * 0.3)))
+
+        # Volatility Context (BB Width Proxy)
+        bb_width = df['bb_width'].iloc[-1] if not pd.isna(df['bb_width'].iloc[-1]) else (atr_val / current_close)
+        regime_volatility_multiplier = 1.0
+        if bb_width > 0:
+            # Dampen volume scores in ultra-high volatility (liquidation events)
+            if bb_width > (atr_val/current_close) * 3.0:
+                regime_volatility_multiplier = 0.8
+
+        # =====================================================================
+        # 4. EFFORT VS RESULT & ABSORPTION
+        # =====================================================================
+        effort = max(0.0, current_rvol)
+        result = current_tr / atr_val
+        
+        # Bullish Absorption: High downward effort (or volume), low downward result, close in upper half
+        is_bull_absorption = (effort > 1.5) and (result < 0.7) and (curr_clv > 0.2)
+        # Bearish Absorption: High upward effort, low result, close in lower half
+        is_bear_absorption = (effort > 1.5) and (result < 0.7) and (curr_clv < -0.2)
+
+        # =====================================================================
+        # 5. MULTI-WINDOW DIVERGENCE & CONFIRMATION
+        # =====================================================================
+        def get_trend_slope(series_np):
+            valid = ~np.isnan(series_np)
+            if np.sum(valid) < 3: return 0.0
+            y = series_np[valid]
+            # Normalize to 0-1 for scale-invariant slope
+            ptp = np.ptp(y)
+            if ptp == 0: return 0.0
+            y_norm = (y - np.min(y)) / ptp
+            x = np.arange(len(y_norm))
+            return float(np.polyfit(x, y_norm, 1)[0])
+
+        confirmation_score = 50.0
+        divergence_type = "none"
+
+        # Use 10-period (short) and 20-period (medium) where available
+        window = min(20, history_length)
+        if window >= 10:
+            price_hist = df['close'].iloc[-window:].values
+            p_slope = get_trend_slope(price_hist)
             
-            close, vwap, rvol = df['close'].iloc[-1], df[vwap_col].iloc[-1], df[rvol_col].iloc[-1]
-            if rvol > 1.2:
-                if close > vwap and trend_dir == 1:
-                    score += w
-                    evidence.append({"type": "VWAP_RVOL", "weight": w, "value": "High Vol hold above VWAP", "polarity": 1})
-                elif close < vwap and trend_dir == -1:
-                    score -= w
-                    evidence.append({"type": "VWAP_RVOL", "weight": w, "value": "High Vol rejection below VWAP", "polarity": -1})
-
-        norm_score = np.clip((score / active_weight) * 100.0 if active_weight > 0 else 0.0, -100.0, 100.0)
-        status = "Strong Bullish" if norm_score >= 50 else "Bullish" if norm_score >= 15 else "Neutral" if norm_score > -15 else "Bearish" if norm_score > -50 else "Strong Bearish"
-
-        data_quality = active_weight / max_possible_weight if max_possible_weight > 0 else 0.0
-        target_pol = 1 if norm_score > 0 else -1 if norm_score < 0 else 0
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == target_pol)
-        agreement = aligned_w / active_weight if active_weight > 0 else 0.0
-        confidence = np.clip((data_quality * 0.4 + agreement * 0.6) * 100.0, 0.0, 100.0)
-
-        return {"score": round(norm_score, 2), "confidence": round(confidence, 2), "status": status, "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 2. VOLUME EXPLOSION
-    # --------------------------------------------------------------------------
-    def _analyze_explosion(self, df: pd.DataFrame) -> VolumeExplosionResult:
-        evidence: List[EvidenceItem] = []
-        score, max_conf, conf_pts = 0.0, 0.0, 0.0
-        
-        vol_z = self._get_val(df, 'volume_zscore', default=0.0)
-        vol_pct = self._get_val(df, 'volume_percentile', default=50.0)
-        rvol = self._get_val(df, 'relative_volume', default=1.0)
-        
-        # 1. Percentile & Regime
-        max_conf += 40.0
-        if self._resolve_feature(df, 'volume_percentile'):
-            conf_pts += 40.0
-            if vol_pct > 95.0 or vol_z > 3.0:
-                score += 40.0
-                evidence.append({"type": "Percentile", "weight": 40.0, "value": f"Extreme Z-Score ({vol_z:.1f})", "polarity": 1})
-            elif vol_pct > 80.0:
-                score += 25.0
-                evidence.append({"type": "Percentile", "weight": 40.0, "value": f"High Volume Regime", "polarity": 1})
-            elif vol_pct < 20.0:
-                evidence.append({"type": "Percentile", "weight": 40.0, "value": f"Volume Dry-up", "polarity": -1})
-                
-        # 2. Expansion Velocity
-        max_conf += 30.0
-        if len(df) > 5:
-            conf_pts += 30.0
-            vol_roc = df['volume'].pct_change().tail(3)
-            if (vol_roc > 0).all():
-                score += 30.0
-                evidence.append({"type": "Velocity", "weight": 30.0, "value": "Multi-bar Acceleration", "polarity": 1})
-
-        # 3. Exhaustion (Climax)
-        max_conf += 30.0
-        atr_col = self._resolve_feature(df, 'atr')
-        if atr_col and pd.notna(df[atr_col].iloc[-1]):
-            conf_pts += 30.0
-            body = abs(df['close'].iloc[-1] - df['open'].iloc[-1])
-            spread = df['high'].iloc[-1] - df['low'].iloc[-1] + EPSILON
-            if rvol > 2.5 and (body / spread) < 0.3:
-                score += 30.0 
-                evidence.append({"type": "Climax", "weight": 30.0, "value": "Climax/Exhaustion Risk", "polarity": -1})
-
-        norm_score = np.clip(score, 0.0, 100.0)
-        has_climax = any(e['type'] == 'Climax' for e in evidence)
-        status = "Climax (Exhaustion)" if has_climax else "Explosive" if norm_score >= 80 else "Expanding" if norm_score >= 50 else "Building" if norm_score >= 20 else "Dormant"
-        confidence = (conf_pts / max_conf) * 100.0 if max_conf > 0 else 0.0
-
-        return {"score": round(norm_score, 2), "confidence": round(confidence, 2), "status": status, "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 3. DELIVERY ANALYSIS
-    # --------------------------------------------------------------------------
-    def _analyze_delivery(self, df: pd.DataFrame) -> DeliveryAnalysisResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        
-        del_pct_col = self._resolve_feature(df, 'delivery_percent')
-        del_qty_col = self._resolve_feature(df, 'delivery_quantity')
-        
-        if not del_pct_col or pd.isna(df[del_pct_col].iloc[-1]):
-            return {"score": 0.0, "confidence": 0.0, "status": "Unavailable", "evidence": []}
-
-        del_pct = df[del_pct_col].iloc[-1]
-        close_chg = df['close'].diff().iloc[-1]
-        
-        # Delivery % Quality & Rolling Rank
-        if del_pct > VOLUME_CONFIG["thresholds"]["high_delivery_pct"]:
-            score += 30.0
-            evidence.append({"type": "Del_Pct", "weight": 30.0, "value": f"High Delivery ({del_pct:.1f}%)", "polarity": 1})
+            # Flow proxy (OBV or Volume*Sign(Return))
+            if not df['obv'].isna().all():
+                flow_hist = df['obv'].iloc[-window:].values
+            else:
+                flow_hist = (df['volume'] * np.sign(df['close'].diff().fillna(0))).cumsum().iloc[-window:].values
             
-        if len(df) > 20:
-            del_rank = df[del_pct_col].tail(20).rank(pct=True).iloc[-1] * 100.0
-            if del_rank > 80.0:
-                score += 20.0
-                evidence.append({"type": "Del_Rank", "weight": 20.0, "value": f"Top 20d Rank", "polarity": 1})
+            f_slope = get_trend_slope(flow_hist)
+
+            # Determine divergence strictly mathematically
+            # If price moves up (slope > 0.05) but flow is flat/down (slope < -0.01)
+            if p_slope > 0.05 and f_slope < -0.02:
+                divergence_type = "bearish"
+                confirmation_score = max(0.0, 50.0 - (abs(p_slope - f_slope) * 50.0))
+            elif p_slope < -0.05 and f_slope > 0.02:
+                divergence_type = "bullish"
+                confirmation_score = max(0.0, 50.0 - (abs(p_slope - f_slope) * 50.0))
+            else:
+                # Confirmed
+                confirmation_score = min(100.0, 50.0 + (1.0 - abs(p_slope - f_slope)) * 50.0)
+
+        # Absorption overrides structural divergence
+        if is_bull_absorption:
+            divergence_type = "bullish_absorption"
+            confirmation_score = 30.0
+        elif is_bear_absorption:
+            divergence_type = "bearish_absorption"
+            confirmation_score = 30.0
+
+        confirmation = float(np.clip(confirmation_score, 0.0, 100.0))
+
+        # =====================================================================
+        # 6. ACCUMULATION / DISTRIBUTION (INDEPENDENT EVIDENCE)
+        # =====================================================================
+        # Accumulation and Distribution are calculated independently based on distinct positive/negative signal confluences.
+        acc_strength = np.mean(acc_signals) if acc_signals else 0.0
+        dist_strength = np.mean(dist_signals) if dist_signals else 0.0
+        
+        acc_confluence_ratio = len(acc_signals) / total_flow_features
+        dist_confluence_ratio = len(dist_signals) / total_flow_features
+
+        vol_multiplier = 0.5 + (volume_explosion / 200.0) # 0.5 to 1.0 scaling
+        
+        raw_acc = acc_strength * acc_confluence_ratio * 100.0 * vol_multiplier * regime_volatility_multiplier
+        raw_dist = dist_strength * dist_confluence_ratio * 100.0 * vol_multiplier * regime_volatility_multiplier
+
+        # If absorption detected, it heavily skews the result
+        if is_bull_absorption:
+            raw_acc += 20.0
+            raw_dist *= 0.5
+        elif is_bear_absorption:
+            raw_dist += 20.0
+            raw_acc *= 0.5
+
+        accumulation = float(np.clip(raw_acc * 1.5, 0.0, 100.0)) # 1.5 constant scales to 100 logically
+        distribution = float(np.clip(raw_dist * 1.5, 0.0, 100.0))
+
+        # =====================================================================
+        # 7. NORMALIZED PRICE-IMPACT LIQUIDITY PROXY
+        # =====================================================================
+        # Measure: How much does ATR-normalized price move per unit of RVOL?
+        # Safeguards against zero volume and zero range
+        norm_movement = current_tr / (atr_val + 1e-9)
+        norm_participation = current_rvol if current_rvol > 0.01 else 0.01
+        
+        price_impact_ratio = norm_movement / norm_participation
+        
+        # High impact (price moves >3x RVOL) = Dry Liquidity
+        # Low impact (price moves <0.5x RVOL) = Thick Liquidity
+        # Map ratio to 100 (Thick) to 0 (Dry) via exponential decay
+        liq_score = 100.0 * math.exp(-0.8 * price_impact_ratio)
+        liquidity = float(np.clip(liq_score, 0.0, 100.0))
+
+        # =====================================================================
+        # 8. INSTITUTIONAL PARTICIPATION PROXY
+        # =====================================================================
+        # Institutional logic: Massive anomalous volume + Highly directional flow confluence + Thick liquidity absorption
+        # We DO NOT claim exact institutional data.
+        inst_magnitude = (volume_explosion / 100.0) * (current_rvol / 2.0)
+        dominant_flow_confluence = max(acc_confluence_ratio, dist_confluence_ratio)
+        
+        inst_proxy_raw = (inst_magnitude * dominant_flow_confluence * agreement_factor * 100.0)
+        institutional = float(np.clip(inst_proxy_raw, 0.0, 100.0))
+        inst_status_str = "inflow" if accumulation >= distribution else "outflow"
+
+        # =====================================================================
+        # 9. QUALITY & CONFIDENCE ENGINE
+        # =====================================================================
+        # Quality penalizes missing DB inputs and extreme dispersion
+        feature_coverage_ratio = flow_features_available / total_flow_features
+        db_validity_penalty = 1.0 if rvol_is_db_valid else 0.8
+        
+        quality_raw = 100.0 * feature_coverage_ratio * db_validity_penalty
+        
+        # Penalize if price range is locked (e.g. upper circuit)
+        if current_tr == 0:
+            quality_raw *= 0.5
             
-            del_z = (del_pct - df[del_pct_col].tail(20).mean()) / (df[del_pct_col].tail(20).std() + EPSILON)
-            if del_z > 2.0:
-                score += 20.0
-                evidence.append({"type": "Del_ZScore", "weight": 20.0, "value": "Statistical Anomaly", "polarity": 1})
-
-        # Quantity Alignment
-        if del_qty_col and pd.notna(df[del_qty_col].iloc[-1]):
-            del_qty = df[del_qty_col].iloc[-1]
-            qty_sma = df[del_qty_col].tail(10).mean() + EPSILON
-            if del_qty > qty_sma * 1.5:
-                if close_chg > 0:
-                    score += 30.0
-                    evidence.append({"type": "Accumulation", "weight": 30.0, "value": "Heavy Delivery (Up Day)", "polarity": 1})
-                elif close_chg < 0:
-                    score -= 30.0
-                    evidence.append({"type": "Distribution", "weight": 30.0, "value": "Heavy Delivery (Down Day)", "polarity": -1})
-
-        norm_score = np.clip((score / 100.0) * 100.0, -100.0, 100.0)
-        status = "Strong Accumulation" if norm_score >= 60 else "Mild Accumulation" if norm_score >= 20 else "Neutral" if norm_score > -20 else "Mild Distribution" if norm_score > -60 else "Strong Distribution"
+        quality = float(np.clip(quality_raw, 0.0, 100.0))
         
-        conflicting = len([e for e in evidence if e['polarity'] == -1]) > 0 and len([e for e in evidence if e['polarity'] == 1]) > 0
-        confidence = 100.0 if del_qty_col else 60.0
-        if conflicting: confidence -= 30.0
+        # Confidence incorporates Quality + Historical Depth + Cross-indicator Agreement
+        history_ratio = min(1.0, history_length / 60.0) # 60 bars for peak statistical confidence
+        confidence_raw = quality * history_ratio * (0.4 + (agreement_factor * 0.6))
+        confidence = float(np.clip(confidence_raw, 0.0, 100.0))
 
-        return {"score": round(norm_score, 2), "confidence": round(confidence, 2), "status": status, "evidence": evidence}
+        # =====================================================================
+        # 10. STATISTICAL LIKELIHOOD RATIO
+        # =====================================================================
+        # Net bias bounds probabilistic skew
+        net_bias = (accumulation - distribution) / 100.0
+        # Map [-1, 1] to LR [0.1, 10.0]
+        lr_val = math.exp(net_bias * 2.3025) # e^2.3025 ~ 10.0
+        likelihood_ratio = float(np.clip(lr_val, 0.1, 10.0))
 
-    # --------------------------------------------------------------------------
-    # 4. ENSEMBLE PROBABILITY MODEL (SMART VOLUME)
-    # --------------------------------------------------------------------------
-    def _analyze_smart_volume(self, df: pd.DataFrame, conf_res: VolumeConfirmationResult, expl_res: VolumeExplosionResult, del_res: DeliveryAnalysisResult, div_res: VolumeDivergenceResult, mtf_res: MTFVolumeResult, adv: AdvancedVolumeMetrics) -> SmartVolumeResult:
-        evidence: List[EvidenceItem] = []
+        # =====================================================================
+        # 11. STATUS MAPPING & EVIDENCE GENERATION
+        # =====================================================================
+        quality_status = "high" if quality >= 70.0 else "low"
+        confirmation_status = "divergence" if "divergence" in divergence_type or "absorption" in divergence_type else "detected"
+        liquidity_status = "high" if liquidity >= 50.0 else "dry"
+        vol_exp_status = "high" if volume_explosion >= 60.0 else "low"
+
+        msg_parts = []
         
-        # Base Probabilities (Bayesian updating approach)
-        p_inst = 0.5 
-        p_ret = 0.5
-        
-        def update_prob(prob: float, weight: float, event_true: bool) -> float:
-            """Simple ensemble weight shift."""
-            if event_true: return prob + weight * (1.0 - prob)
-            return prob - weight * prob
+        # Volume Magnitude
+        if volume_explosion > 75.0:
+            msg_parts.append(f"Statistically extreme volume proxy (RVOL: {current_rvol:.2f}, Z: {current_vol_z:.1f}).")
+        elif volume_explosion > 50.0:
+            msg_parts.append("Elevated volume participation detected.")
 
-        # 1. SMC Structure Footprints
-        smc_feats = ['ob_active', 'fvg_active', 'liq_sweep', 'bos', 'choch', 'breaker', 'mitigation']
-        struct_active = False
-        for feat in smc_feats:
-            col = self._resolve_feature(df, feat)
-            if col and pd.notna(df[col].iloc[-1]) and df[col].iloc[-1] != 0:
-                struct_active = True
-                p_inst = update_prob(p_inst, 0.20, True)
-                evidence.append({"type": "SMC", "weight": 20.0, "value": f"Structure {feat.upper()} Active", "polarity": 1})
+        # Divergence & Absorption
+        if is_bull_absorption:
+            msg_parts.append("High downward effort met with compressed ATR displacement indicates structural bullish absorption.")
+        elif is_bear_absorption:
+            msg_parts.append("High upward effort met with compressed ATR displacement indicates structural bearish absorption.")
+        elif divergence_type != "none":
+            msg_parts.append(f"Multi-window regression indicates {divergence_type} divergence between price trajectory and cumulative flow.")
+        else:
+            msg_parts.append("Price action is quantitatively confirmed by underlying volumetric flow.")
 
-        # 2. Advanced Institutional Behaviors
-        if adv['dark_pool_proxy']:
-            p_inst = update_prob(p_inst, 0.25, True)
-            evidence.append({"type": "Dark_Pool", "weight": 25.0, "value": "Dark Pool / Hidden Absorption Proxy", "polarity": 1})
+        # Accumulation/Distribution Footprint
+        if accumulation > distribution and accumulation > 50.0:
+            if agreement_factor > 0.6:
+                msg_parts.append("Independent flow features converge to validate strong systemic accumulation.")
+            else:
+                msg_parts.append("Net flow leans toward accumulation despite internal indicator dispersion.")
+        elif distribution > accumulation and distribution > 50.0:
+            if agreement_factor > 0.6:
+                msg_parts.append("Independent flow features converge to validate strong systemic distribution.")
+            else:
+                msg_parts.append("Net flow leans toward distribution despite internal indicator dispersion.")
+        else:
+            msg_parts.append("Volumetric pressure is neutral, lacking definitive directional accumulation/distribution footprint.")
+
+        # Institutional Proxy Disclosure
+        if institutional > 65.0:
+            msg_parts.append(f"Behavioral proxy implies large-entity {inst_status_str} footprint based on anomalous participation and impact ratios.")
             
-        if adv['block_trade_proxy']:
-            p_inst = update_prob(p_inst, 0.20, True)
-            evidence.append({"type": "Block_Trade", "weight": 20.0, "value": "Institutional Block Trade Profile", "polarity": 1})
+        if not rvol_is_db_valid:
+            msg_parts.append("[Note: Source DB RVOL invalid/missing; utilized derived statistical proxy].")
 
-        # 3. Delivery Confirmation
-        if del_res['score'] > 40:
-            p_inst = update_prob(p_inst, 0.15, True)
-            evidence.append({"type": "Delivery", "weight": 15.0, "value": "Validates Smart Accumulation", "polarity": 1})
+        evidence_msg = " ".join(msg_parts)
 
-        # 4. Retail FOMO / Traps
-        rsi = self._get_val(df, 'rsi', 50.0)
-        is_retail_trap = not struct_active and expl_res['score'] > 50 and (rsi > 70 or rsi < 30)
-        if is_retail_trap:
-            p_ret = update_prob(p_ret, 0.35, True)
-            p_inst = update_prob(p_inst, 0.20, False)
-            evidence.append({"type": "Retail_Trap", "weight": 35.0, "value": "Explosive Vol at Extreme w/o Structure", "polarity": -1})
-
-        # 5. Divergence Penalty
-        if div_res['divergence_type'] != "None" and div_res['strength'] > 50:
-            p_ret = update_prob(p_ret, 0.15, True)
-            evidence.append({"type": "Divergence", "weight": 15.0, "value": "Volume Divergence flags weakness", "polarity": -1})
-
-        inst_prob_final = np.clip(p_inst * 100.0, 0.0, 100.0)
-        ret_prob_final = np.clip(p_ret * 100.0, 0.0, 100.0)
-
-        dom = "Institutional" if inst_prob_final > ret_prob_final + 20 else "Retail" if ret_prob_final > inst_prob_final + 20 else "Mixed"
-        conf = np.clip(((inst_prob_final + ret_prob_final) / 200.0) * 100.0 + 30.0, 20.0, 95.0)
-
+        # =====================================================================
+        # 12. FINAL OUTPUT ASSEMBLY (EXACT CONTRACT)
+        # =====================================================================
         return {
-            "institutional_probability": round(inst_prob_final, 2),
-            "retail_probability": round(ret_prob_final, 2),
-            "confidence": round(conf, 2),
-            "dominance": dom,
-            "evidence": evidence
+            "volume_analyzer": {
+                "confidence": round(confidence, 4),
+                "accumulation": round(accumulation, 4),
+                "distribution": round(distribution, 4),
+                "quality": round(quality, 4),
+                "quality_status": quality_status,
+                "confirmation": round(confirmation, 4),
+                "confirmation_status": confirmation_status,
+                "institutional": round(institutional, 4),
+                "institutional_status": inst_status_str,
+                "liquidity": round(liquidity, 4),
+                "liquidity_status": liquidity_status,
+                "volume_explosion": round(volume_explosion, 4),
+                "volume_explosion_status": vol_exp_status,
+                "evidence": [
+                    {
+                        "category": "Volume",
+                        "message": evidence_msg,
+                        "reliability": round(confidence, 4),
+                        "likelihood_ratio": round(likelihood_ratio, 4)
+                    }
+                ]
+            }
         }
-
-    # --------------------------------------------------------------------------
-    # 5. MULTI-OSCILLATOR DIVERGENCE (PIVOT BASED JIT)
-    # --------------------------------------------------------------------------
-    def _analyze_divergence(self, df: pd.DataFrame) -> VolumeDivergenceResult:
-        evidence: List[EvidenceItem] = []
-        votes = {1: 0.0, -1: 0.0, 2: 0.0, -2: 0.0} 
-        total_weight = 0.0
-        
-        lookback = VOLUME_CONFIG["thresholds"]["divergence_lookback"]
-        price_arr = df['close'].to_numpy(dtype=np.float64)
-        
-        for osc, weight in VOLUME_CONFIG["oscillator_weights"].items():
-            col = self._resolve_feature(df, osc)
-            if col and pd.notna(df[col].iloc[-1]) and len(df) >= lookback:
-                total_weight += weight
-                osc_arr = df[col].to_numpy(dtype=np.float64)
-                
-                str_val, div_type = _pivot_divergence_engine_jit(price_arr, osc_arr, lookback)
-                if div_type != 0:
-                    votes[div_type] += (weight * str_val)
-                    evidence.append({"type": osc.upper(), "weight": weight * 100.0, "value": "Pivot Divergence Flagged", "polarity": np.sign(div_type)})
-
-        if total_weight == 0 or max(votes.values()) == 0:
-            return {"divergence_type": "None", "strength": 0.0, "confidence": 100.0 if total_weight > 0.5 else 50.0, "evidence": evidence}
-            
-        dominant_type = max(votes, key=votes.get)
-        strength = np.clip((votes[dominant_type] / total_weight), 0.0, 100.0)
-        conf = np.clip((sum(v for k,v in votes.items() if np.sign(k) == np.sign(dominant_type)) / total_weight) * 100.0, 0.0, 100.0)
-        
-        d_map = {1: "Regular Bullish", -1: "Regular Bearish", 2: "Hidden Bullish", -2: "Hidden Bearish"}
-        
-        return {
-            "divergence_type": d_map[dominant_type],
-            "strength": round(strength, 2),
-            "confidence": round(conf, 2),
-            "evidence": evidence
-        }
-
-    # --------------------------------------------------------------------------
-    # 6. EXPANDED MULTI-TIMEFRAME ALIGNMENT
-    # --------------------------------------------------------------------------
-    def _analyze_mtf(self, df: pd.DataFrame) -> MTFVolumeResult:
-        timeframes = {}
-        score, act_w = 0.0, 0.0
-        
-        for sfx in self.mtf_suffixes:
-            w = VOLUME_CONFIG["mtf_weights"].get(sfx, 0.0)
-            tf_score = 0.0
-            tf_count = 0
-            
-            # Check multiple volume indicators in MTF
-            for base in ['volume', 'obv', 'cmf', 'relative_volume', 'vwap']:
-                col = self._resolve_feature(df, f"{base}{sfx}")
-                if col and pd.notna(df[col].iloc[-1]):
-                    tf_count += 1
-                    val = df[col].iloc[-1]
-                    if base == 'volume':
-                        ma_col = self._resolve_feature(df, f"volume_ma_20{sfx}")
-                        if ma_col and val > df[ma_col].iloc[-1]: tf_score += 1
-                        else: tf_score -= 1
-                    elif base in ['obv', 'cmf']:
-                        if val > df[col].iloc[-2]: tf_score += 1
-                        else: tf_score -= 1
-                    elif base == 'vwap':
-                        if df[f'close{sfx}'].iloc[-1] > val: tf_score += 1
-                        else: tf_score -= 1
-            
-            if tf_count > 0:
-                act_w += w
-                norm_tf = tf_score / tf_count
-                if norm_tf > 0:
-                    timeframes[sfx.strip('_')] = "Bullish / Expansion"
-                    score += w
-                else:
-                    timeframes[sfx.strip('_')] = "Bearish / Compression"
-                    score -= w
-
-        norm = (score / act_w * 100.0) if act_w > 0 else 0.0
-        trend = "Macro Accumulation" if norm > 50 else "Macro Distribution" if norm < -50 else "Mixed Context"
-        
-        return {
-            "alignment_score": round(norm, 2),
-            "dominant_trend": trend,
-            "confidence": round(act_w * 100.0, 2),
-            "timeframes": timeframes
-        }
-
-    # --------------------------------------------------------------------------
-    # 7. ADVANCED VOLUME METRICS & INSTITUTIONAL PROXIES
-    # --------------------------------------------------------------------------
-    def _analyze_advanced_metrics(self, df: pd.DataFrame, conf: VolumeConfirmationResult, expl: VolumeExplosionResult, deliv: DeliveryAnalysisResult, div: VolumeDivergenceResult) -> AdvancedVolumeMetrics:
-        latest = df.iloc[-1]
-        
-        # Stability & Efficiency
-        vol_arr = df['volume'].tail(20)
-        vol_std, vol_mean = vol_arr.std() + EPSILON, vol_arr.mean() + EPSILON
-        vol_stability = np.clip((1.0 - (vol_std / vol_mean)) * 100.0, 0.0, 100.0)
-        
-        price_change = abs(df['close'].iloc[-1] - df['open'].iloc[-1])
-        vol_efficiency = np.clip((price_change / (latest['volume'] + EPSILON)) * 1e6, 0.0, 100.0)
-        
-        # Dry-up & Shifts
-        vol_pct = self._get_val(df, 'volume_percentile', 50.0)
-        dry_up = bool(vol_pct < 15.0)
-        regime_shift = bool(expl['status'] in ["Explosive", "Climax"] and vol_arr.iloc[-2] < vol_mean)
-        
-        # Liquidity Absorption
-        atr = self._get_val(df, 'atr', EPSILON)
-        abs_prob = 80.0 if (expl['score'] > 50 and price_change < atr * 0.5) else 0.0
-        
-        # Compression vs Expansion Prob
-        comp_score = 100.0 - vol_pct if dry_up else 0.0
-        exp_prob = np.clip(expl['score'], 0.0, 100.0)
-
-        # Regimes & Indices
-        spi = np.clip((deliv['score'] * 0.6) + (conf['score'] * 0.4), 0.0, 100.0)
-        rpi = np.clip(expl['score'] - spi, 0.0, 100.0)
-        p_regime = "Smart Accumulation" if spi > 60 else "Retail Speculation" if rpi > 60 else "Equilibrium"
-
-        # VFI (Volume Fractal Index) Proxy
-        vfi = 0.0
-        if len(df) > 20:
-            tr = df['high'] - df['low']
-            vfi_series = ((df['close'] - df['close'].shift(1)) / (tr + EPSILON)) * df['volume']
-            vfi = vfi_series.tail(20).sum() / (vol_mean * 20.0 + EPSILON) * 100.0
-
-        # Institutional Proxies
-        rvol = self._get_val(df, 'relative_volume', 1.0)
-        spread = df['high'].iloc[-1] - df['low'].iloc[-1] + EPSILON
-        
-        # Dark Pool Proxy: Massive Volume, negligible price displacement
-        dp_proxy = bool(rvol > 2.0 and spread < atr * VOLUME_CONFIG["thresholds"]["dark_pool_displacement_limit"])
-        
-        # Block Trade Proxy: Single bar massive spike on low overall volatility
-        block_proxy = bool(rvol > 3.0 and vol_pct > 90.0 and spread < atr)
-
-        return {
-            "volume_quality": round(np.clip((conf['score'] + 100.0) / 2.0, 0.0, 100.0), 2),
-            "volume_efficiency": round(vol_efficiency, 2),
-            "participation_regime": p_regime,
-            "smart_participation_index": round(spi, 2),
-            "retail_participation_index": round(rpi, 2),
-            "volume_stability": round(vol_stability, 2),
-            "volume_persistence": round(expl['score'], 2),
-            "volume_dry_up": dry_up,
-            "volume_regime_shift": regime_shift,
-            "liquidity_absorption": round(abs_prob, 2),
-            "volume_compression_score": round(comp_score, 2),
-            "volume_expansion_probability": round(exp_prob, 2),
-            "block_trade_proxy": block_proxy,
-            "dark_pool_proxy": dp_proxy,
-            "volume_fractal_index": round(vfi, 2)
-        }
-
-# ==============================================================================
-# EXPORTS
-# ==============================================================================
-__all__ = [
-    "VolumeAnalyzer",
-    "VolumeAnalysisResult",
-    "VolumeConfirmationResult",
-    "VolumeExplosionResult",
-    "DeliveryAnalysisResult",
-    "SmartVolumeResult",
-    "VolumeDivergenceResult",
-    "MTFVolumeResult",
-    "AdvancedVolumeMetrics",
-    "EvidenceItem"
-]

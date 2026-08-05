@@ -1,508 +1,2207 @@
-import math
+from __future__ import annotations
+
 import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Optional, Tuple
-from collections import defaultdict
+import math
+import re
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# DYNAMIC INSTITUTIONAL CONFIGURATION
-# ==============================================================================
+MIN_LR = 0.15
+MAX_LR = 8.0
 
-IPO_CONFIG = {
-    "scalars": {
-        "bayesian_damping_power": 0.45,
-        "base_prior": 0.5,
-        "risk_free_rate": 0.07,
-        "equity_risk_premium": 0.05,
-        "terminal_growth": 0.04,
-        "ideal_qib_subscription": 50.0,
-        "ideal_hni_subscription": 30.0,
-        "monte_carlo_sims": 5000
-    },
-    "thresholds": {
-        "roce_excellent": 20.0, "roce_good": 12.0,
-        "debt_equity_safe": 0.5, "debt_equity_risk": 1.5,
-        "gmp_premium_excellent": 30.0, "gmp_premium_good": 10.0,
-        "anchor_concentration_max": 40.0,
-        "sovereign_mf_min_pct": 30.0
-    },
-    "base_weights": {
-        "valuation_pe": 0.25, "valuation_ev_ebitda": 0.25,
-        "valuation_ev_sales": 0.20, "valuation_dcf": 0.30,
-        "composite_quality": 0.25, "composite_demand": 0.25,
-        "composite_listing": 0.15, "composite_opportunity": 0.20,
-        "composite_risk": 0.15
-    },
-    "reliabilities": {
-        "financials": 0.95, "market_data": 0.98, "subscription": 0.99,
-        "anchor_data": 0.92, "gmp_data": 0.70, "valuation_models": 0.85
-    },
-    "penalties": {
-        "missing_core_feature": 4.0,
-        "negative_equity": 30.0,
-        "promoter_dump": 40.0,
-        "gmp_collapse": 25.0
-    },
-    "action_thresholds": {
-        "strong_apply": 80.0, "apply": 60.0, "watch": 45.0, "avoid": 25.0
-    }
+
+# ============================================================================
+# STRICT IPO FEATURE CONTRACT
+# ============================================================================
+#
+# Each tuple:
+#   (database/input alias, multiplier)
+#
+# Multipliers are explicit. No automatic unit guessing is performed.
+#
+# Percentage fields:
+#   - *_pct / *_percent     -> already percentage points
+#   - *_ratio / *_decimal   -> decimal fractions converted explicitly
+#
+# The analyzer also accepts common NSE/Yahoo/database naming variants.
+# ============================================================================
+
+FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
+    # Risk
+    "ipo_risk": [
+        ("ipo_risk", 1.0),
+        ("risk", 1.0),
+        ("ipo_risk_score", 1.0),
+        ("risk_score", 1.0),
+    ],
+    "valuation": [
+        ("ipo_valuation", 1.0),
+        ("valuation", 1.0),
+        ("valuation_score", 1.0),
+        ("ipo_valuation_score", 1.0),
+    ],
+
+    # IPO quality / listing
+    "ipo_quality": [
+        ("ipo_quality", 1.0),
+        ("ipo_quality_score", 1.0),
+        ("quality_score", 1.0),
+    ],
+    "listing": [
+        ("listing_strength", 1.0),
+        ("listing_score", 1.0),
+        ("listing_performance", 1.0),
+        ("listing_gain_pct", 1.0),
+        ("listing_gain_percent", 1.0),
+    ],
+
+    # Subscription / demand
+    "subscription": [
+        ("subscription", 1.0),
+        ("subscription_multiple", 1.0),
+        ("subscription_times", 1.0),
+        ("overall_subscription", 1.0),
+        ("overall_subscription_multiple", 1.0),
+    ],
+    "institutional": [
+        ("institutional_subscription", 1.0),
+        ("institutional_subscription_multiple", 1.0),
+        ("qib_subscription", 1.0),
+        ("qib_subscription_multiple", 1.0),
+        ("institutional_demand", 1.0),
+        ("institutional_score", 1.0),
+    ],
+    "anchor": [
+        ("anchor_subscription", 1.0),
+        ("anchor_subscription_multiple", 1.0),
+        ("anchor_allocation", 1.0),
+        ("anchor_score", 1.0),
+        ("anchor_investor_score", 1.0),
+    ],
+    "demand": [
+        ("demand", 1.0),
+        ("demand_score", 1.0),
+        ("ipo_demand", 1.0),
+        ("ipo_demand_score", 1.0),
+        ("retail_demand", 1.0),
+    ],
+
+    # Liquidity
+    "liquidity": [
+        ("ipo_liquidity", 1.0),
+        ("liquidity", 1.0),
+        ("liquidity_score", 1.0),
+        ("listing_liquidity", 1.0),
+        ("trading_liquidity", 1.0),
+    ],
+
+    # Business
+    "business": [
+        ("business_quality", 1.0),
+        ("business_score", 1.0),
+        ("business_strength", 1.0),
+        ("company_quality", 1.0),
+        ("fundamental_quality", 1.0),
+    ],
+
+    # Additional fundamental IPO context
+    "revenue_growth": [
+        ("revenue_growth_yoy", 1.0),
+        ("revenue_growth_pct", 1.0),
+        ("revenue_growth_percent", 1.0),
+        ("revenue_growth", 1.0),
+    ],
+    "earnings_growth": [
+        ("earnings_growth_yoy", 1.0),
+        ("earnings_growth_pct", 1.0),
+        ("earnings_growth_percent", 1.0),
+        ("earnings_growth", 1.0),
+    ],
+    "roe": [
+        ("roe", 1.0),
+        ("return_on_equity", 1.0),
+        ("return_on_equity_pct", 1.0),
+    ],
+    "roce": [
+        ("roce", 1.0),
+        ("return_on_capital_employed", 1.0),
+        ("return_on_capital_employed_pct", 1.0),
+    ],
+
+    # IPO pricing
+    "issue_price": [
+        ("issue_price", 1.0),
+        ("ipo_price", 1.0),
+        ("offer_price", 1.0),
+        ("price_band_upper", 1.0),
+        ("upper_price_band", 1.0),
+    ],
+    "listing_price": [
+        ("listing_price", 1.0),
+        ("listing_day_price", 1.0),
+        ("open_price", 1.0),
+        ("listing_day_open", 1.0),
+    ],
+    "current_price": [
+        ("current_price", 1.0),
+        ("cmp", 1.0),
+        ("last_price", 1.0),
+        ("market_price", 1.0),
+    ],
+
+    # Size / liquidity context
+    "issue_size": [
+        ("issue_size", 1.0),
+        ("issue_size_cr", 1.0),
+        ("issue_size_crore", 1.0),
+        ("total_issue_size", 1.0),
+    ],
+    "market_cap": [
+        ("market_cap", 1.0),
+        ("market_capitalization", 1.0),
+        ("market_cap_cr", 1.0),
+    ],
+
+    # Ownership / dilution
+    "promoter_holding": [
+        ("promoter_holding", 1.0),
+        ("promoter_holding_pct", 1.0),
+        ("promoter_holding_percent", 1.0),
+    ],
+    "fresh_issue_pct": [
+        ("fresh_issue_pct", 1.0),
+        ("fresh_issue_percent", 1.0),
+    ],
+    "ofs_pct": [
+        ("ofs_pct", 1.0),
+        ("ofs_percent", 1.0),
+        ("offer_for_sale_pct", 1.0),
+    ],
+
+    # Risk context
+    "debt_equity": [
+        ("debt_to_equity", 1.0),
+        ("debt_equity", 1.0),
+        ("debt_eq", 1.0),
+    ],
+    "profit_margin": [
+        ("net_margin", 1.0),
+        ("profit_margin", 1.0),
+        ("profit_margin_pct", 1.0),
+        ("profit_margins", 1.0),
+    ],
 }
 
-# ==============================================================================
-# SCHEMAS
-# ==============================================================================
 
-class EvidenceItem(TypedDict):
-    category: str; feature: str; weight: float; polarity: int
-    reliability: float; likelihood_ratio: float; explanation: str
+# ============================================================================
+# DATA STRUCTURES
+# ============================================================================
 
-class IPOQualityResult(TypedDict):
-    issue_quality: float; business_quality: float; management_quality: float
-    financial_quality: float; capital_allocation: float; evidence: List[EvidenceItem]
+@dataclass(frozen=True)
+class EvidenceNode:
+    domain: str
+    direction: float
+    magnitude: float
+    message: str
 
-class GMPAnalysisResult(TypedDict):
-    gmp_premium: float; gmp_momentum: float; gmp_reliability: float
-    gmp_persistence: float; gmp_premium_score: float; evidence: List[EvidenceItem]
 
-class ListingStrengthResult(TypedDict):
-    listing_gain: float; opening_auction_strength: float; vwap_premium: float
-    intraday_high_retention: float; closing_strength: float; relative_volume: float
-    evidence: List[EvidenceItem]
+# ============================================================================
+# SAFE HELPERS
+# ============================================================================
 
-class SubscriptionAnalysisResult(TypedDict):
-    overall_subscription: float; oversubscription_velocity: float; last_day_spike: float
-    qib_score: float; hni_score: float; retail_score: float
-    category_concentration: float; smart_money_participation: float; evidence: List[EvidenceItem]
+def _num(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
 
-class AnchorAnalysisResult(TypedDict):
-    anchor_allocation: float; top_anchor_concentration: float; domestic_vs_foreign_ratio: float
-    mf_sovereign_pct: float; lockin_expiry_impact: float; anchor_quality_score: float
-    evidence: List[EvidenceItem]
+    try:
+        if isinstance(value, str):
+            text = value.strip()
 
-class ListingOpportunityResult(TypedDict):
-    dcf_value: float; relative_pe_value: float; ev_ebitda_value: float; ev_sales_value: float
-    weighted_fair_value: float; expected_upside: float; margin_of_safety: float
-    p10_listing_estimate: float; p50_listing_estimate: float; p90_listing_estimate: float
-    evidence: List[EvidenceItem]
+            if not text:
+                return None
 
-class RiskAnalysisResult(TypedDict):
-    sector_risk: float; market_sentiment_risk: float; grey_market_collapse_risk: float
-    float_turnover_risk: float; post_lockin_supply_shock: float; valuation_dispersion: float
-    macro_liquidity_risk: float; overall_ipo_risk: float; evidence: List[EvidenceItem]
+            text = text.replace(",", "")
+            text = text.replace("₹", "")
+            text = text.replace("$", "")
 
-class CompositeScoreResult(TypedDict):
-    quality_score: float; demand_score: float; opportunity_score: float; listing_score: float
-    risk_score: float; base_weighted_score: float; penalty_deduction: float
-    bayesian_confidence_multiplier: float; overall_ipo_score: float; investment_grade: str
+            # Explicitly strip a percentage sign.
+            if text.endswith("%"):
+                text = text[:-1].strip()
 
-class SummaryResult(TypedDict):
-    recommended_action: str; why_apply: List[str]; why_avoid: List[str]
-    expected_listing_range: str; expected_1_month_return: float; expected_6_month_return: float
-    expected_cagr: float; probability_of_success: float; probability_of_failure: float
+            # Handle simple "x" suffix used for subscription multiples.
+            if text.lower().endswith("x"):
+                text = text[:-1].strip()
 
-class IPOAnalysisResult(TypedDict):
-    ipo_quality: IPOQualityResult; gmp_analysis: GMPAnalysisResult
-    subscription_analysis: SubscriptionAnalysisResult; anchor_analysis: AnchorAnalysisResult
-    listing_strength: ListingStrengthResult; listing_opportunity: ListingOpportunityResult
-    risk_analysis: RiskAnalysisResult; composite_score: CompositeScoreResult; summary: SummaryResult
+            value = float(text)
 
-# ==============================================================================
-# MAIN ENGINE
-# ==============================================================================
+        value = float(value)
+
+        if not math.isfinite(value):
+            return None
+
+        return value
+
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        value = value.strip()
+        return value if value else None
+
+    return None
+
+
+def _clip(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _safe_float(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+
+    try:
+        value = float(value)
+
+        if not math.isfinite(value):
+            return None
+
+        return value
+
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _sigmoid(x: float) -> float:
+    x = _clip(x, -20.0, 20.0)
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def _continuous_score(
+    value: float,
+    neutral: float,
+    scale: float,
+    invert: bool = False,
+) -> float:
+    if scale <= 0:
+        return 50.0
+
+    z = (value - neutral) / scale
+
+    if invert:
+        z = -z
+
+    return _sigmoid(z) * 100.0
+
+
+def _lr(magnitude: float, direction: float) -> float:
+    magnitude = _clip(abs(magnitude), 0.0, 1.0)
+
+    base = 1.0 + (magnitude * 3.0)
+
+    if direction >= 0:
+        return _clip(base, MIN_LR, MAX_LR)
+
+    return _clip(1.0 / base, MIN_LR, MAX_LR)
+
+
+def _normalise_key(key: Any) -> str:
+    return (
+        str(key)
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+        .replace("/", "_")
+    )
+
+
+def _parse_time(value: Any, fallback: float = 0.0) -> float:
+    if value is None:
+        return fallback
+
+    if isinstance(value, bool):
+        return fallback
+
+    if isinstance(value, (int, float)):
+        try:
+            value = float(value)
+            return value if math.isfinite(value) else fallback
+        except (TypeError, ValueError):
+            return fallback
+
+    text = str(value).strip()
+
+    if not text:
+        return fallback
+
+    # YYYY-MM-DD
+    if re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        try:
+            return (
+                float(text[0:4]) * 10000.0
+                + float(text[5:7]) * 100.0
+                + float(text[8:10])
+            )
+        except (ValueError, IndexError):
+            return fallback
+
+    # YYYY/MM/DD
+    if re.match(r"^\d{4}/\d{2}/\d{2}", text):
+        try:
+            return (
+                float(text[0:4]) * 10000.0
+                + float(text[5:7]) * 100.0
+                + float(text[8:10])
+            )
+        except (ValueError, IndexError):
+            return fallback
+
+    numeric = _num(text)
+
+    if numeric is not None:
+        return numeric
+
+    return fallback
+
+
+def _date_from_row(row: Mapping[str, Any]) -> float:
+    aliases = (
+        "date",
+        "datetime",
+        "timestamp",
+        "time",
+        "period",
+        "report_date",
+        "financial_date",
+        "as_of_date",
+        "updated_at",
+        "created_at",
+        "listing_date",
+        "ipo_date",
+    )
+
+    for alias in aliases:
+        key = _normalise_key(alias)
+
+        if key in row:
+            parsed = _parse_time(row[key])
+
+            if parsed != 0.0:
+                return parsed
+
+    return 0.0
+
+
+def _status(score: Optional[float], high: float, low: float) -> str:
+    if score is None:
+        return "unknown"
+
+    if score >= high:
+        return "high"
+
+    if score <= low:
+        return "low"
+
+    return "neutral"
+
+
+def _safe_round(value: Optional[float], digits: int = 4) -> Optional[float]:
+    if value is None:
+        return None
+
+    return _safe_float(round(value, digits))
+
+
+# ============================================================================
+# IPO ANALYZER
+# ============================================================================
 
 class IPOAnalyzer:
-    # Segregated Schema for Robust Integrity Scoring
-    CORE_SCHEMA = [
-        'issue_price', 'ipo_size', 'market_cap', 'float_shares', 'gmp',
-        'subscription_qib', 'subscription_hni', 'subscription_retail',
-        'roe', 'roce', 'roic', 'eps', 'book_value', 'pe_ratio', 'sector_pe',
-        'sales', 'net_profit', 'debt_to_equity', 'promoter_holding_pre', 'promoter_holding_post'
-    ]
+    """
+    Production-grade IPO Analyzer.
 
-    ADVANCED_SCHEMA = [
-        'gmp_momentum', 'gmp_reliability', 'gmp_persistence',
-        'subscription_velocity', 'last_day_spike', 'category_concentration',
-        'anchor_allocation', 'top_anchor_concentration', 'domestic_vs_foreign_ratio',
-        'mf_anchor_pct', 'sovereign_anchor_pct', 'lockin_days',
-        'ebitda', 'sector_ev_ebitda', 'sector_ev_sales', 'sales_growth', 'profit_growth',
-        'operating_cash_flow', 'free_cash_flow', 'current_ratio', 'cash_equivalents', 'total_debt',
-        'listing_price', 'current_price', 'vwap', 'intraday_high', 'opening_auction_volume',
-        'listing_volume', 'close', 'volume', 'beta', 'market_sentiment_score', 'sector_risk_score',
-        'macro_liquidity_index', 'shares_outstanding' # <-- FIXED: Added shares_outstanding
-    ]
+    Design principles
+    -----------------
+    1. Database friendly.
+    2. L3 Analyzer friendly.
+    3. Accepts DataFrame / dict / list / wrapped payloads.
+    4. Chronological historical parsing.
+    5. Uses latest VALID snapshot, not blindly the last row.
+    6. Never fabricates missing values.
+    7. Explicit feature contracts.
+    8. Full feature-level tracing.
+    9. Domain-level coverage.
+    10. Deterministic output.
+    11. No Buy/Sell/Entry/SL/Target logic.
+    12. No dependency on scoring engines.
+    13. Exception safe.
+    14. JSON serializable output.
+    """
 
-    EXPECTED_SCHEMA = CORE_SCHEMA + ADVANCED_SCHEMA # <-- FIXED: For Dynamic Registry
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(
+            f"{__name__}.{self.__class__.__name__}"
+        )
 
-    def __init__(self, config: Optional[Dict] = None):
-        self.config = config or IPO_CONFIG
+    # ========================================================================
+    # PUBLIC API
+    # ========================================================================
 
-    def _safe_div(self, num: float, den: float, default: float = 0.0) -> float:
-        return num / den if den and not math.isnan(den) and den != 0 else default
+    def analyze(
+        self,
+        data: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        try:
+            snapshots = self._parse_payload_chronologically(data)
 
-    def _normalize(self, value: float, min_val: float, max_val: float, invert: bool = False) -> float:
-        if math.isnan(value) or math.isinf(value) or max_val == min_val:
-            return 50.0
-        clamped = np.clip(value, min_val, max_val)
-        score = ((clamped - min_val) / (max_val - min_val)) * 100.0
-        return 100.0 - score if invert else score
+            if not snapshots:
+                return self._empty()
 
-    def _stable_sigmoid(self, log_odds: float) -> float:
-        if log_odds >= 0:
-            return 1.0 / (1.0 + math.exp(-log_odds))
-        return math.exp(log_odds) / (1.0 + math.exp(log_odds))
+            histories = self._build_feature_histories(snapshots)
 
-    def _logistic_calibration(self, prob: float) -> float:
-        k = 6.0
-        midpoint = 0.5
-        logistic_val = 1.0 / (1.0 + math.exp(-k * (prob - midpoint)))
-        return 0.5 + (0.7 * logistic_val)
+            latest_snapshot = self._get_latest_valid_snapshot(
+                snapshots,
+                histories,
+            )
 
-    def _bayesian_aggregation(self, evidence: List[EvidenceItem]) -> Tuple[float, float]:
-        prior = self.config['scalars']['base_prior']
-        log_prior = math.log(prior / (1.0 - prior))
-        cat_log_lrs = defaultdict(list)
+            if latest_snapshot is None:
+                return self._empty()
 
-        for e in evidence:
-            val = e['reliability'] * math.log(max(e['likelihood_ratio'], 1e-5))
-            cat_log_lrs[e['category']].append(val)
+            latest_metrics, feature_trace = self._extract_latest_features(
+                histories,
+                latest_snapshot,
+            )
 
-        damped_log_lr = 0.0
-        d_power = self.config['scalars']['bayesian_damping_power']
+            feature_trace_summary = self._build_feature_trace_summary(
+                histories,
+                feature_trace,
+            )
 
-        for cat, vals in cat_log_lrs.items():
-            damping = 1.0 / (len(vals) ** d_power) if vals else 1.0
-            damped_log_lr += sum(vals) * damping
+            domain_coverage = self._build_domain_coverage(
+                histories,
+                feature_trace,
+            )
 
-        log_post = log_prior + damped_log_lr
-        prob = self._stable_sigmoid(log_post)
-        return prob, log_post
+            nodes: List[EvidenceNode] = []
 
-    def _validate_integrity(self, df: pd.DataFrame) -> Tuple[float, Dict[str, float]]:
-        missing_core = [f for f in self.CORE_SCHEMA if f not in df.columns]
-        penalty = len(missing_core) * self.config['penalties']['missing_core_feature']
-        integrity = np.clip(100.0 - penalty, 0.0, 100.0)
+            # =================================================================
+            # RISK
+            # =================================================================
 
-        latest = df.iloc[-1] if not df.empty else pd.Series()
-        l1 = {f: float(latest.get(f, np.nan)) for f in self.EXPECTED_SCHEMA}
-        return integrity, l1
+            risk_score = self._calculate_risk(
+                latest_metrics,
+                nodes,
+            )
 
-    def analyze(self, df, corporate_actions=None, **kwargs) -> IPOAnalysisResult:
-        if df.empty:
-            raise ValueError("IPOAnalyzer: Empty DataFrame")
+            risk_status = (
+                "high"
+                if risk_score is not None and risk_score >= 60.0
+                else "low"
+                if risk_score is not None and risk_score <= 40.0
+                else "neutral"
+                if risk_score is not None
+                else "unknown"
+            )
 
-        integrity_score, l1 = self._validate_integrity(df)
-        
-        qual = self._analyze_quality(l1)
-        gmp_res = self._analyze_gmp(l1)
-        sub = self._analyze_subscription(l1)
-        anc = self._analyze_anchors(l1)
-        lst = self._analyze_listing_strength(l1)
-        opp = self._analyze_valuation_multi_model(l1, qual, sub, gmp_res)
-        risk = self._analyze_risk(l1, gmp_res, anc, sub, opp)
+            # =================================================================
+            # VALUATION
+            # =================================================================
 
-        all_ev = qual['evidence'] + gmp_res['evidence'] + sub['evidence'] + anc['evidence'] + lst['evidence'] + opp['evidence'] + risk['evidence']
-        comp = self._generate_composite_score(qual, sub, opp, lst, risk, all_ev, integrity_score)
-        summary = self._generate_summary(comp, opp, all_ev, l1)
+            valuation_score = self._calculate_valuation(
+                latest_metrics,
+                nodes,
+            )
 
-        return {
-            "ipo_quality": qual,
-            "gmp_analysis": gmp_res,
-            "subscription_analysis": sub,
-            "anchor_analysis": anc,
-            "listing_strength": lst,
-            "listing_opportunity": opp,
-            "risk_analysis": risk,
-            "composite_score": comp,
-            "summary": summary
+            valuation_status = (
+                "attractive"
+                if valuation_score is not None and valuation_score >= 60.0
+                else "expensive"
+                if valuation_score is not None and valuation_score <= 40.0
+                else "neutral"
+                if valuation_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # IPO QUALITY
+            # =================================================================
+
+            ipo_quality_score = self._calculate_ipo_quality(
+                latest_metrics,
+                nodes,
+            )
+
+            ipo_quality_status = (
+                "high"
+                if ipo_quality_score is not None and ipo_quality_score >= 60.0
+                else "low"
+                if ipo_quality_score is not None and ipo_quality_score <= 40.0
+                else "neutral"
+                if ipo_quality_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # LISTING
+            # =================================================================
+
+            listing_score = self._calculate_listing(
+                latest_metrics,
+                histories,
+                nodes,
+            )
+
+            listing_status = (
+                "strong"
+                if listing_score is not None and listing_score >= 60.0
+                else "weak"
+                if listing_score is not None and listing_score <= 40.0
+                else "neutral"
+                if listing_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # SUBSCRIPTION
+            # =================================================================
+
+            subscription_score = self._calculate_subscription(
+                latest_metrics,
+                nodes,
+            )
+
+            subscription_status = (
+                "high"
+                if subscription_score is not None and subscription_score >= 60.0
+                else "low"
+                if subscription_score is not None and subscription_score <= 40.0
+                else "neutral"
+                if subscription_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # INSTITUTIONAL
+            # =================================================================
+
+            institutional_score = self._calculate_institutional(
+                latest_metrics,
+                nodes,
+            )
+
+            institutional_status = (
+                "strong"
+                if institutional_score is not None and institutional_score >= 60.0
+                else "weak"
+                if institutional_score is not None and institutional_score <= 40.0
+                else "neutral"
+                if institutional_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # ANCHOR
+            # =================================================================
+
+            anchor_score = self._calculate_anchor(
+                latest_metrics,
+                nodes,
+            )
+
+            anchor_status = (
+                "excellent"
+                if anchor_score is not None and anchor_score >= 70.0
+                else "poor"
+                if anchor_score is not None and anchor_score <= 40.0
+                else "neutral"
+                if anchor_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # DEMAND
+            # =================================================================
+
+            demand_score = self._calculate_demand(
+                latest_metrics,
+                nodes,
+            )
+
+            demand_status = (
+                "huge"
+                if demand_score is not None and demand_score >= 70.0
+                else "weak"
+                if demand_score is not None and demand_score <= 40.0
+                else "neutral"
+                if demand_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # LIQUIDITY
+            # =================================================================
+
+            liquidity_score = self._calculate_liquidity(
+                latest_metrics,
+                nodes,
+            )
+
+            liquidity_status = (
+                "high"
+                if liquidity_score is not None and liquidity_score >= 60.0
+                else "low"
+                if liquidity_score is not None and liquidity_score <= 40.0
+                else "neutral"
+                if liquidity_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # BUSINESS
+            # =================================================================
+
+            business_score = self._calculate_business(
+                latest_metrics,
+                nodes,
+            )
+
+            business_status = (
+                "excellent"
+                if business_score is not None and business_score >= 60.0
+                else "poor"
+                if business_score is not None and business_score <= 40.0
+                else "neutral"
+                if business_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # OPPORTUNITY
+            # =================================================================
+
+            opportunity_score = self._calculate_opportunity(
+                risk_score=risk_score,
+                valuation_score=valuation_score,
+                ipo_quality_score=ipo_quality_score,
+                listing_score=listing_score,
+                subscription_score=subscription_score,
+                institutional_score=institutional_score,
+                anchor_score=anchor_score,
+                demand_score=demand_score,
+                liquidity_score=liquidity_score,
+                business_score=business_score,
+            )
+
+            opportunity_status = (
+                "high"
+                if opportunity_score is not None and opportunity_score >= 60.0
+                else "low"
+                if opportunity_score is not None and opportunity_score <= 40.0
+                else "neutral"
+                if opportunity_score is not None
+                else "unknown"
+            )
+
+            # =================================================================
+            # CROSS-DOMAIN CONTRADICTIONS
+            # =================================================================
+
+            self._detect_contradictions(
+                risk_score=risk_score,
+                valuation_score=valuation_score,
+                demand_score=demand_score,
+                institutional_score=institutional_score,
+                business_score=business_score,
+                subscription_score=subscription_score,
+                listing_score=listing_score,
+                nodes=nodes,
+            )
+
+            # =================================================================
+            # EVIDENCE
+            # =================================================================
+
+            evidence = self._format_evidence(nodes)
+
+            # =================================================================
+            # CONFIDENCE
+            # =================================================================
+
+            confidence = self._calculate_confidence(
+                feature_trace_summary=feature_trace_summary,
+                domain_coverage=domain_coverage,
+                evidence=evidence,
+                snapshots=snapshots,
+            )
+
+            return {
+                "ipo_analyzer": {
+                    "confidence": _safe_round(confidence),
+
+                    "risk": _safe_round(risk_score),
+                    "risk_status": risk_status,
+
+                    "valuation": _safe_round(valuation_score),
+                    "valuation_status": valuation_status,
+
+                    "ipo_quality": _safe_round(ipo_quality_score),
+                    "ipo_quality_status": ipo_quality_status,
+
+                    "listing": _safe_round(listing_score),
+                    "listing_status": listing_status,
+
+                    "subscription": _safe_round(subscription_score),
+                    "subscription_status": subscription_status,
+
+                    "institutional": _safe_round(institutional_score),
+                    "institutional_status": institutional_status,
+
+                    "anchor": _safe_round(anchor_score),
+                    "anchor_status": anchor_status,
+
+                    "demand": _safe_round(demand_score),
+                    "demand_status": demand_status,
+
+                    "liquidity": _safe_round(liquidity_score),
+                    "liquidity_status": liquidity_status,
+
+                    "business": _safe_round(business_score),
+                    "business_status": business_status,
+
+                    "opportunity": _safe_round(opportunity_score),
+                    "opportunity_status": opportunity_status,
+
+                    "feature_coverage_pct": feature_trace_summary[
+                        "coverage_pct"
+                    ],
+
+                    "feature_trace_summary": feature_trace_summary,
+
+                    "feature_trace": feature_trace,
+
+                    "domain_coverage": domain_coverage,
+
+                    "evidence": evidence[:12],
+                }
+            }
+
+        except Exception as exc:
+            self.logger.exception(
+                "IPO Analyzer Critical Failure: %s",
+                exc,
+            )
+
+            result = self._empty()
+
+            result["ipo_analyzer"]["evidence"].append(
+                {
+                    "category": "IPO",
+                    "domain": "system",
+                    "message": "Execution encountered a critical failure.",
+                    "reliability": 0.96,
+                    "likelihood_ratio": 0.42,
+                }
+            )
+
+            return result
+
+    # ========================================================================
+    # PARSER
+    # ========================================================================
+
+    def _parse_payload_chronologically(
+        self,
+        data: Any,
+    ) -> List[Dict[str, Any]]:
+        raw_rows: List[Dict[str, Any]] = []
+
+        if data is None:
+            return raw_rows
+
+        # pandas DataFrame
+        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+            try:
+                converted = data.to_dict(orient="records")
+
+                if isinstance(converted, list):
+                    raw_rows.extend(
+                        row
+                        for row in converted
+                        if isinstance(row, dict)
+                    )
+            except Exception:
+                pass
+
+        elif isinstance(data, Mapping):
+            wrappers = (
+                "features",
+                "feature_history",
+                "historical_data",
+                "ipo_history",
+                "ipo_data",
+                "historical_ipo_data",
+                "rows",
+                "records",
+                "data",
+                "items",
+            )
+
+            found_list = False
+
+            for wrapper in wrappers:
+                value = data.get(wrapper)
+
+                if isinstance(value, list):
+                    raw_rows.extend(
+                        row
+                        for row in value
+                        if isinstance(row, Mapping)
+                    )
+                    found_list = True
+
+            dict_wrappers = (
+                "ipo_snapshot",
+                "ipo_snapshot_data",
+                "latest_ipo",
+                "company_profile",
+            )
+
+            for wrapper in dict_wrappers:
+                value = data.get(wrapper)
+
+                if isinstance(value, Mapping):
+                    raw_rows.append(dict(value))
+                    found_list = True
+
+            if not found_list:
+                raw_rows.append(dict(data))
+
+        elif isinstance(data, list):
+            raw_rows.extend(
+                row
+                for row in data
+                if isinstance(row, Mapping)
+            )
+
+        # Normalize every row.
+        extracted: List[Dict[str, Any]] = []
+
+        for index, row in enumerate(raw_rows):
+            normalized: Dict[str, Any] = {}
+
+            for raw_key, value in row.items():
+                if value is None:
+                    continue
+
+                key = _normalise_key(raw_key)
+
+                normalized[key] = value
+
+            if not normalized:
+                continue
+
+            timestamp = _date_from_row(normalized)
+
+            normalized["_t"] = timestamp
+            normalized["_idx"] = index
+
+            # A row is retained if it contains at least one contracted
+            # feature, even when the row has no explicit date.
+            if self._row_contains_contract_feature(normalized):
+                extracted.append(normal)
+
+        extracted.sort(
+            key=lambda row: (
+                float(row.get("_t", 0.0)),
+                int(row.get("_idx", 0)),
+            )
+        )
+
+        return extracted
+
+    def _row_contains_contract_feature(
+        self,
+        row: Mapping[str, Any],
+    ) -> bool:
+        aliases = {
+            alias
+            for contracts in FIELD_CONTRACTS.values()
+            for alias, _ in contracts
         }
 
-    # ---------------------------------------------------------
-    # 1. IPO QUALITY 
-    # ---------------------------------------------------------
-    def _analyze_quality(self, l1: Dict[str, float]) -> IPOQualityResult:
-        roic = np.nan_to_num(l1['roic'], nan=0.0)
-        debt = np.nan_to_num(l1['debt_to_equity'], nan=0.0)
-        cfo = np.nan_to_num(l1['operating_cash_flow'], nan=0.0)
-        pat = np.nan_to_num(l1['net_profit'], nan=1e-9)
-        cfo_pat = self._safe_div(cfo, pat)
-        pro_pre = np.nan_to_num(l1['promoter_holding_pre'], nan=100.0)
-        pro_post = np.nan_to_num(l1['promoter_holding_post'], nan=75.0)
-        retention = self._safe_div(pro_post, pro_pre) * 100.0
+        return any(
+            key in aliases
+            for key in row.keys()
+        )
 
-        th = self.config['thresholds']
-        rel = self.config['reliabilities']['financials']
+    # ========================================================================
+    # FEATURE HISTORY
+    # ========================================================================
 
-        fin_q = np.clip(100.0 - (debt * 20.0), 0, 100)
-        biz_q = self._normalize(roic, 0, th['roce_excellent'])
-        cap_q = np.clip(cfo_pat * 50.0, 0, 100)
-        mgmt_q = np.clip((retention * 0.4) + (cap_q * 0.3) + (biz_q * 0.3), 0, 100)
-        issue_quality = np.mean([fin_q, biz_q, cap_q, mgmt_q])
+    def _build_feature_histories(
+        self,
+        snapshots: List[Dict[str, Any]],
+    ) -> Dict[str, List[Tuple[float, float, str, Any]]]:
+        histories: Dict[
+            str,
+            List[Tuple[float, float, str, Any]],
+        ] = {}
 
-        ev = []
-        if roic > th['roce_good']:
-            ev.append({"category": "Quality", "feature": "ROIC", "weight": 15.0, "polarity": 1, "reliability": rel, "likelihood_ratio": 1.8, "explanation": f"Strong Capital Return (ROIC: {roic:.1f}%)"})
-        if retention < 50.0:
-            ev.append({"category": "Quality", "feature": "Promoter Selloff", "weight": 20.0, "polarity": -1, "reliability": rel, "likelihood_ratio": 0.2, "explanation": f"Heavy Promoter Dilution (Retained only {retention:.1f}%)"})
+        for feature, aliases in FIELD_CONTRACTS.items():
+            series: List[Tuple[float, float, str, Any]] = []
 
-        return {
-            "issue_quality": issue_quality, "business_quality": biz_q, 
-            "management_quality": mgmt_q, "financial_quality": fin_q, 
-            "capital_allocation": cap_q, "evidence": ev
+            for snapshot in snapshots:
+                for alias, multiplier in aliases:
+                    if alias not in snapshot:
+                        continue
+
+                    raw = _num(snapshot.get(alias))
+
+                    if raw is None:
+                        continue
+
+                    normalized = raw * multiplier
+
+                    if not math.isfinite(normalized):
+                        continue
+
+                    series.append(
+                        (
+                            float(snapshot.get("_t", 0.0)),
+                            float(normalized),
+                            alias,
+                            snapshot.get(alias),
+                        )
+                    )
+
+                    break
+
+            histories[feature] = series
+
+        return histories
+
+    def _get_latest_valid_snapshot(
+        self,
+        snapshots: List[Dict[str, Any]],
+        histories: Dict[str, List[Tuple[float, float, str, Any]]],
+    ) -> Optional[Dict[str, Any]]:
+        if not snapshots:
+            return None
+
+        # Valid means at least one contracted feature has a valid numeric
+        # value in the row. This avoids blindly trusting the final DB row.
+        for snapshot in reversed(snapshots):
+            timestamp = float(snapshot.get("_t", 0.0))
+
+            for feature_history in histories.values():
+                for timestamp_value, _, _, _ in reversed(feature_history):
+                    if timestamp_value == timestamp:
+                        return snapshot
+
+        return None
+
+    # ========================================================================
+    # LATEST FEATURE EXTRACTION + TRACE
+    # ========================================================================
+
+    def _extract_latest_features(
+        self,
+        histories: Dict[str, List[Tuple[float, float, str, Any]]],
+        latest_snapshot: Dict[str, Any],
+    ) -> Tuple[Dict[str, Optional[float]], Dict[str, Dict[str, Any]]]:
+
+        latest_metrics: Dict[str, Optional[float]] = {
+            feature: None
+            for feature in FIELD_CONTRACTS
         }
 
-    # ---------------------------------------------------------
-    # 2. GMP INTELLIGENCE
-    # ---------------------------------------------------------
-    def _analyze_gmp(self, l1: Dict[str, float]) -> GMPAnalysisResult:
-        issue = np.nan_to_num(l1['issue_price'], nan=1e-9)
-        gmp = np.nan_to_num(l1['gmp'], nan=0.0)
-        prem = self._safe_div(gmp, issue) * 100.0 if issue > 0 else 0.0
-        momentum = np.nan_to_num(l1['gmp_momentum'], nan=0.0)
-        reliab = np.nan_to_num(l1['gmp_reliability'], nan=50.0)
-        persist = np.nan_to_num(l1['gmp_persistence'], nan=50.0)
-        score = np.clip((prem * 0.4) + (momentum * 0.3) + (reliab * 0.3), 0, 100)
+        trace: Dict[str, Dict[str, Any]] = {}
 
-        ev = []
-        if prem > 20 and reliab > 70:
-            ev.append({"category": "GMP", "feature": "Premium", "weight": 15.0, "polarity": 1, "reliability": 0.8, "likelihood_ratio": 1.5, "explanation": f"Reliable GMP Premium ({prem:.1f}%)"})
-        elif momentum < -10:
-            ev.append({"category": "GMP", "feature": "Momentum Collapse", "weight": 20.0, "polarity": -1, "reliability": 0.85, "likelihood_ratio": 0.2, "explanation": "Grey Market Premium collapsing."})
+        latest_timestamp = float(
+            latest_snapshot.get("_t", 0.0)
+        )
 
-        return {"gmp_premium": prem, "gmp_momentum": momentum, "gmp_reliability": reliab, "gmp_persistence": persist, "gmp_premium_score": score, "evidence": ev}
+        for feature, aliases in FIELD_CONTRACTS.items():
+            history = histories.get(feature, [])
 
-    # ---------------------------------------------------------
-    # 3. SUBSCRIPTION FLOW
-    # ---------------------------------------------------------
-    def _analyze_subscription(self, l1: Dict[str, float]) -> SubscriptionAnalysisResult:
-        qib = np.nan_to_num(l1['subscription_qib'], nan=0.0)
-        hni = np.nan_to_num(l1['subscription_hni'], nan=0.0)
-        ret = np.nan_to_num(l1['subscription_retail'], nan=0.0)
-        vel = np.nan_to_num(l1['subscription_velocity'], nan=0.0)
-        spike = np.nan_to_num(l1['last_day_spike'], nan=0.0)
-        cat_conc = np.nan_to_num(l1['category_concentration'], nan=0.0)
-        overall = qib + hni + ret
-        smart_money = (qib * 0.7) + (hni * 0.3)
+            aliases_checked = [
+                alias
+                for alias, _ in aliases
+            ]
 
-        ev = []
-        if qib > 30 and spike > 50:
-            ev.append({"category": "Subscription", "feature": "Institutional Spike", "weight": 18.0, "polarity": 1, "reliability": 0.99, "likelihood_ratio": 2.5, "explanation": "Massive Institutional Bid Velocity on Day 3."})
-        if overall > 0 and qib < 1:
-            ev.append({"category": "Subscription", "feature": "QIB Avoidance", "weight": 25.0, "polarity": -1, "reliability": 0.99, "likelihood_ratio": 0.1, "explanation": "Smart money completely avoided the issue."})
+            matching = [
+                point
+                for point in history
+                if point[0] == latest_timestamp
+            ]
 
-        return {
-            "overall_subscription": overall, "oversubscription_velocity": vel, 
-            "last_day_spike": spike, "qib_score": qib, "hni_score": hni, 
-            "retail_score": ret, "category_concentration": cat_conc, 
-            "smart_money_participation": smart_money, "evidence": ev
-        }
+            if matching:
+                timestamp, normalized, source_field, raw_value = matching[-1]
 
-    # ---------------------------------------------------------
-    # 4. ANCHOR INTELLIGENCE
-    # ---------------------------------------------------------
-    def _analyze_anchors(self, l1: Dict[str, float]) -> AnchorAnalysisResult:
-        alloc = np.nan_to_num(l1['anchor_allocation'], nan=0.0)
-        top_conc = np.nan_to_num(l1['top_anchor_concentration'], nan=100.0)
-        mf_sov = np.nan_to_num(l1['mf_anchor_pct'], nan=0.0) + np.nan_to_num(l1['sovereign_anchor_pct'], nan=0.0)
-        dom_vs_for = np.nan_to_num(l1['domestic_vs_foreign_ratio'], nan=1.0)
-        lockin = np.nan_to_num(l1['lockin_days'], nan=30.0)
-        qual = np.clip((mf_sov * 0.6) + ((100-top_conc) * 0.4), 0, 100)
-        lockin_imp = 100.0 - self._normalize(lockin, 30, 90)
+                multiplier = 1.0
 
-        ev = []
-        if mf_sov > 50.0:
-            ev.append({"category": "Anchor", "feature": "High Quality", "weight": 12.0, "polarity": 1, "reliability": 0.95, "likelihood_ratio": 1.6, "explanation": f"Bluechip Mutual/Sovereign Backing ({mf_sov:.1f}%)"})
+                for alias, mult in aliases:
+                    if alias == source_field:
+                        multiplier = mult
+                        break
 
-        return {"anchor_allocation": alloc, "top_anchor_concentration": top_conc, "domestic_vs_foreign_ratio": dom_vs_for, "mf_sovereign_pct": mf_sov, "lockin_expiry_impact": lockin_imp, "anchor_quality_score": qual, "evidence": ev}
+                latest_metrics[feature] = normalized
 
-    # ---------------------------------------------------------
-    # 5. LISTING STRENGTH
-    # ---------------------------------------------------------
-    def _analyze_listing_strength(self, l1: Dict[str, float]) -> ListingStrengthResult:
-        if math.isnan(l1.get('listing_price', np.nan)):
-            return {"listing_gain": 0.0, "opening_auction_strength": 0.0, "vwap_premium": 0.0, "intraday_high_retention": 0.0, "closing_strength": 0.0, "relative_volume": 0.0, "evidence": []}
+                trace[feature] = {
+                    "status": "used",
+                    "feature": feature,
+                    "source_field": source_field,
+                    "raw_value": raw_value,
+                    "multiplier": multiplier,
+                    "normalized_value": normalized,
+                    "historical_points": len(history),
+                    "latest_timestamp": timestamp,
+                    "aliases_checked": aliases_checked,
+                }
 
-        issue = l1['issue_price']
-        listing = l1['listing_price']
-        vwap = np.nan_to_num(l1['vwap'], nan=listing)
-        close = l1.get('close', listing)
-        high = np.nan_to_num(l1['intraday_high'], nan=listing)
+                continue
 
-        gain = self._safe_div(close - issue, issue) * 100.0
-        vwap_prem = self._safe_div(vwap - listing, listing) * 100.0
-        retention = self._safe_div(close - listing, high - listing) * 100.0 if high > listing else 0.0
-        auc_vol = np.nan_to_num(l1['opening_auction_volume'], nan=0.0)
-        rel_vol = self._safe_div(auc_vol, np.nan_to_num(l1['float_shares'], nan=1e9)) * 100.0
+            # The latest snapshot may not contain a particular feature.
+            # Search backwards for the latest VALID value only.
+            fallback = self._latest_valid_history_point(history)
 
-        ev = []
-        if retention > 80.0 and gain > 10.0:
-            ev.append({"category": "Listing", "feature": "Closing Strength", "weight": 15.0, "polarity": 1, "reliability": 0.99, "likelihood_ratio": 1.8, "explanation": "Sustained institutional buying into close."})
+            if fallback is not None:
+                timestamp, normalized, source_field, raw_value = fallback
 
-        return {"listing_gain": gain, "opening_auction_strength": rel_vol, "vwap_premium": vwap_prem, "intraday_high_retention": retention, "closing_strength": retention, "relative_volume": rel_vol, "evidence": ev}
+                multiplier = 1.0
 
-    # ---------------------------------------------------------
-    # 6. MONTE CARLO VALUATION & RANGE 
-    # ---------------------------------------------------------
-    def _analyze_valuation_multi_model(self, l1: Dict[str, float], qual: IPOQualityResult, sub: SubscriptionAnalysisResult, gmp: GMPAnalysisResult) -> ListingOpportunityResult:
-        issue = np.nan_to_num(l1['issue_price'], nan=1e-9)
-        shares = np.nan_to_num(l1.get('shares_outstanding', 1e6), nan=1e6) # FIXED: Use get with fallback
-        mcap = issue * shares
-        debt = np.nan_to_num(l1['total_debt'], nan=0.0)
-        cash = np.nan_to_num(l1['cash_equivalents'], nan=0.0)
+                for alias, mult in aliases:
+                    if alias == source_field:
+                        multiplier = mult
+                        break
 
-        eps = np.nan_to_num(l1['eps'], nan=0.0)
-        sec_pe = np.nan_to_num(l1['sector_pe'], nan=15.0)
-        pe_val = (eps * sec_pe) if eps > 0 else 0.0
+                latest_metrics[feature] = normalized
 
-        ebitda = np.nan_to_num(l1['ebitda'], nan=0.0)
-        sec_ev_ebitda = np.nan_to_num(l1['sector_ev_ebitda'], nan=10.0)
-        ev_ebitda_val = self._safe_div((ebitda * sec_ev_ebitda) - debt + cash, shares) if ebitda > 0 else 0.0
+                trace[feature] = {
+                    "status": "used",
+                    "feature": feature,
+                    "source_field": source_field,
+                    "raw_value": raw_value,
+                    "multiplier": multiplier,
+                    "normalized_value": normalized,
+                    "historical_points": len(history),
+                    "latest_timestamp": timestamp,
+                    "aliases_checked": aliases_checked,
+                    "valid_history_fallback": True,
+                }
 
-        sales = np.nan_to_num(l1['sales'], nan=0.0)
-        sec_ev_sales = np.nan_to_num(l1['sector_ev_sales'], nan=2.0)
-        ev_sales_val = self._safe_div((sales * sec_ev_sales) - debt + cash, shares) if sales > 0 else 0.0
+                continue
 
-        fcf = np.nan_to_num(l1['free_cash_flow'], nan=0.0)
-        beta = np.nan_to_num(l1['beta'], nan=1.0)
-        rf = self.config['scalars']['risk_free_rate']
-        erp = self.config['scalars']['equity_risk_premium']
-        coe = rf + (beta * erp)
-        g = np.clip(np.nan_to_num(l1['profit_growth'], nan=5.0) / 100.0, 0, 0.15)
-        dcf_val = self._safe_div((fcf * (1 + g)) / (coe - g), shares) if fcf > 0 and coe > g else 0.0
+            trace[feature] = {
+                "status": "missing",
+                "feature": feature,
+                "source_field": None,
+                "raw_value": None,
+                "multiplier": None,
+                "normalized_value": None,
+                "historical_points": 0,
+                "latest_timestamp": latest_timestamp,
+                "aliases_checked": aliases_checked,
+            }
 
-        w = self.config['base_weights']
-        valid_models = []
-        if pe_val > 0:
-            valid_models.append((pe_val, w['valuation_pe'] * (1.0 if not math.isnan(l1.get('sector_pe', np.nan)) else 0.5)))
-        if ev_ebitda_val > 0:
-            valid_models.append((ev_ebitda_val, w['valuation_ev_ebitda'] * (1.0 if not math.isnan(l1.get('sector_ev_ebitda', np.nan)) else 0.5)))
-        if ev_sales_val > 0:
-            valid_models.append((ev_sales_val, w['valuation_ev_sales'] * (1.0 if not math.isnan(l1.get('sector_ev_sales', np.nan)) else 0.5)))
-        if dcf_val > 0:
-            valid_models.append((dcf_val, w['valuation_dcf']))
+        return latest_metrics, trace
 
-        fair_val = sum(v * wt for v, wt in valid_models) / sum(wt for _, wt in valid_models) if valid_models else issue
-        upside = self._safe_div(fair_val - issue, issue) * 100.0
-        mos = self._safe_div(fair_val - issue, fair_val) * 100.0 if fair_val > 0 else 0.0
+    @staticmethod
+    def _latest_valid_history_point(
+        history: List[Tuple[float, float, str, Any]],
+    ) -> Optional[Tuple[float, float, str, Any]]:
+        if not history:
+            return None
 
-        n_sims = self.config['scalars']['monte_carlo_sims']
-        base_prem = np.nan_to_num(l1['gmp'], nan=0.0)
-        
-        # FIXED: Prevent scale from becoming 0 or negative
-        vol_calc = issue * (0.05 + (0.10 / (math.log10(max(sub['overall_subscription'] + 2, 2.0)))))
-        volatility = max(vol_calc, 1e-5) 
-        
-        sim_listing_prices = np.random.normal(loc=(issue + base_prem), scale=volatility, size=n_sims)
-        sim_listing_prices = np.maximum(sim_listing_prices, issue * 0.5)
+        for point in reversed(history):
+            if point[1] is None:
+                continue
 
-        p10 = float(np.percentile(sim_listing_prices, 10))
-        p50 = float(np.percentile(sim_listing_prices, 50))
-        p90 = float(np.percentile(sim_listing_prices, 90))
+            if math.isfinite(point[1]):
+                return point
 
-        ev = []
-        if mos > 20:
-            ev.append({"category": "Valuation", "feature": "Multi-Model MOS", "weight": 20.0, "polarity": 1, "reliability": 0.85, "likelihood_ratio": 1.9, "explanation": f"Deep Value via Multi-Model Framework. Fair Value: {fair_val:.2f}"})
-        elif mos < -15:
-            ev.append({"category": "Valuation", "feature": "Overpriced", "weight": 20.0, "polarity": -1, "reliability": 0.85, "likelihood_ratio": 0.25, "explanation": f"Aggressively Priced vs Sector. Fair Value: {fair_val:.2f}"})
+        return None
+
+    # ========================================================================
+    # TRACE / COVERAGE
+    # ========================================================================
+
+    def _build_feature_trace_summary(
+        self,
+        histories: Dict[str, List[Tuple[float, float, str, Any]]],
+        feature_trace: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+
+        total = len(FIELD_CONTRACTS)
+
+        used_names = sorted(
+            feature
+            for feature, trace in feature_trace.items()
+            if trace.get("status") == "used"
+        )
+
+        missing_names = sorted(
+            feature
+            for feature, trace in feature_trace.items()
+            if trace.get("status") == "missing"
+        )
+
+        invalid_names = sorted(
+            feature
+            for feature, trace in feature_trace.items()
+            if trace.get("status") == "invalid"
+        )
+
+        used = len(used_names)
+
+        coverage = (
+            (used / float(total)) * 100.0
+            if total
+            else 0.0
+        )
 
         return {
-            "dcf_value": dcf_val, "relative_pe_value": pe_val, "ev_ebitda_value": ev_ebitda_val, 
-            "ev_sales_value": ev_sales_val, "weighted_fair_value": fair_val, "expected_upside": upside, 
-            "margin_of_safety": mos, "p10_listing_estimate": p10, "p50_listing_estimate": p50, 
-            "p90_listing_estimate": p90, "evidence": ev
+            "total_features": total,
+            "used_features": used,
+            "available_not_used": 0,
+            "missing_features": len(missing_names),
+            "invalid_features": len(invalid_names),
+            "coverage_pct": _safe_round(coverage),
+            "used_feature_names": used_names,
+            "available_not_used_names": [],
+            "missing_feature_names": missing_names,
+            "invalid_feature_names": invalid_names,
         }
 
-    # ---------------------------------------------------------
-    # 7. INSTITUTIONAL RISK ENGINE
-    # ---------------------------------------------------------
-    def _analyze_risk(self, l1: Dict[str, float], gmp: GMPAnalysisResult, anc: AnchorAnalysisResult, sub: SubscriptionAnalysisResult, opp: ListingOpportunityResult) -> RiskAnalysisResult:
-        sector_risk = np.nan_to_num(l1['sector_risk_score'], nan=50.0)
-        sentiment = np.nan_to_num(l1['market_sentiment_score'], nan=50.0)
-        float_shares = np.nan_to_num(l1['float_shares'], nan=1e6) + 1e-9
-        shares = np.nan_to_num(l1.get('shares_outstanding', 1e7), nan=1e7) # FIXED
-        
-        float_risk = self._safe_div(float_shares, shares) * 100.0
-        lockin_days = np.nan_to_num(l1.get('lockin_days', 30.0), nan=30.0)
-        lockin_shock = (anc['anchor_allocation'] / float_shares) * 100.0 if lockin_days < 45 else 0.0
+    def _build_domain_coverage(
+        self,
+        histories: Dict[str, List[Tuple[float, float, str, Any]]],
+        feature_trace: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
 
-        implied_pe = np.nan_to_num(l1['pe_ratio'], nan=15.0)
-        sec_pe = np.nan_to_num(l1['sector_pe'], nan=15.0)
-        dispersion = self._safe_div(abs(implied_pe - sec_pe), sec_pe) * 100.0
+        domains = {
+            "risk": [
+                "ipo_risk",
+                "debt_equity",
+            ],
+            "valuation": [
+                "valuation",
+            ],
+            "ipo_quality": [
+                "ipo_quality",
+                "business",
+                "revenue_growth",
+                "earnings_growth",
+                "roe",
+                "roce",
+            ],
+            "listing": [
+                "listing",
+                "listing_price",
+                "issue_price",
+            ],
+            "subscription": [
+                "subscription",
+            ],
+            "institutional": [
+                "institutional",
+            ],
+            "anchor": [
+                "anchor",
+            ],
+            "demand": [
+                "demand",
+                "subscription",
+            ],
+            "liquidity": [
+                "liquidity",
+                "issue_size",
+                "market_cap",
+            ],
+            "business": [
+                "business",
+                "revenue_growth",
+                "earnings_growth",
+                "roe",
+                "roce",
+                "profit_margin",
+            ],
+            "ownership": [
+                "promoter_holding",
+                "fresh_issue_pct",
+                "ofs_pct",
+            ],
+        }
 
-        macro_liq = np.nan_to_num(l1.get('macro_liquidity_index', 50.0), nan=50.0)
-        gmp_col = 100.0 if gmp['gmp_momentum'] < -15.0 else 0.0
+        result: Dict[str, Any] = {}
 
-        overall = np.clip((sector_risk * 0.15) + ((100-sentiment) * 0.2) + (gmp_col * 0.2) + (lockin_shock * 0.15) + (dispersion * 0.15) + ((100-macro_liq) * 0.15), 0, 100)
+        for domain, features in domains.items():
+            total = len(features)
 
-        ev = []
-        if lockin_shock > 30.0:
-            ev.append({"category": "Risk", "feature": "Supply Shock", "weight": 15.0, "polarity": -1, "reliability": 0.9, "likelihood_ratio": 0.2, "explanation": f"High Post-Lockin Dumping Risk ({lockin_shock:.1f}% float expansion expected)"})
+            used_names = [
+                feature
+                for feature in features
+                if feature_trace.get(feature, {}).get("status")
+                == "used"
+            ]
 
-        return {"sector_risk": sector_risk, "market_sentiment_risk": 100.0-sentiment, "grey_market_collapse_risk": gmp_col, "float_turnover_risk": float_risk, "post_lockin_supply_shock": lockin_shock, "valuation_dispersion": dispersion, "macro_liquidity_risk": 100.0-macro_liq, "overall_ipo_risk": overall, "evidence": ev}
+            used = len(used_names)
 
-    # ---------------------------------------------------------
-    # 8. COMPOSITE SCORING
-    # ---------------------------------------------------------
-    def _generate_composite_score(self, qual, sub, opp, lst, risk, all_ev, integrity) -> CompositeScoreResult:
-        w = self.config['base_weights']
-        q_s = qual['issue_quality']
-        d_s = np.clip(sub['smart_money_participation'] * 2, 0, 100)
-        o_s = np.clip(50.0 + opp['margin_of_safety'], 0, 100)
-        l_s = np.clip(50.0 + lst['listing_gain'], 0, 100)
-        r_s = 100.0 - risk['overall_ipo_risk']
+            coverage = (
+                (used / float(total)) * 100.0
+                if total
+                else 0.0
+            )
 
-        base = (q_s*w['composite_quality'] + d_s*w['composite_demand'] + o_s*w['composite_opportunity'] + l_s*w['composite_listing'] + r_s*w['composite_risk'])
+            result[domain] = {
+                "coverage_pct": _safe_round(coverage),
+                "used": used,
+                "total": total,
+                "used_features": sorted(used_names),
+            }
 
-        prob, _ = self._bayesian_aggregation(all_ev)
-        conf_mult = self._logistic_calibration(prob)
+        return result
 
-        penalty = 0.0
-        if qual['financial_quality'] < 20:
-            penalty += self.config['penalties']['negative_equity']
-        if risk['grey_market_collapse_risk'] > 80:
-            penalty += self.config['penalties']['gmp_collapse']
+    # ========================================================================
+    # DOMAIN CALCULATORS
+    # ========================================================================
 
-        final_score = np.clip((base * conf_mult) - penalty, 0, 100)
+    def _calculate_risk(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
 
-        ig = "AAA" if final_score >= 85 else "AA" if final_score >= 70 else "A" if final_score >= 60 else "BBB" if final_score >= 45 else "BB" if final_score >= 35 else "JUNK"
+        values: List[float] = []
+
+        ipo_risk = m.get("ipo_risk")
+
+        if ipo_risk is not None:
+            score = _clip(ipo_risk, 0.0, 100.0)
+
+            # Higher explicit risk score = higher risk.
+            values.append(score)
+
+            direction = -1.0 if score > 50.0 else 1.0
+
+            nodes.append(
+                EvidenceNode(
+                    "risk",
+                    direction,
+                    abs(score - 50.0) / 50.0,
+                    f"IPO risk score is {score:.1f}.",
+                )
+            )
+
+        debt = m.get("debt_equity")
+
+        if debt is not None:
+            score = _continuous_score(
+                debt,
+                neutral=1.0,
+                scale=0.8,
+                invert=False,
+            )
+
+            values.append(score)
+
+            direction = -1.0 if score > 50.0 else 1.0
+
+            nodes.append(
+                EvidenceNode(
+                    "risk",
+                    direction,
+                    abs(score - 50.0) / 50.0,
+                    f"Debt-to-equity context indicates "
+                    f"{'elevated' if score > 50.0 else 'moderate/lower'} leverage risk.",
+                )
+            )
+
+        if not values:
+            return None
+
+        return _clip(sum(values) / len(values), 0.0, 100.0)
+
+    def _calculate_valuation(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        explicit = m.get("valuation")
+
+        if explicit is not None:
+            score = _clip(explicit, 0.0, 100.0)
+
+            nodes.append(
+                EvidenceNode(
+                    "valuation",
+                    1.0 if score >= 50.0 else -1.0,
+                    abs(score - 50.0) / 50.0,
+                    f"IPO valuation assessment score is {score:.1f}.",
+                )
+            )
+
+            return score
+
+        issue = m.get("issue_price")
+        market = m.get("market_cap")
+
+        if issue is None or market is None or issue <= 0:
+            return None
+
+        # Without earnings/book-value/revenue normalization, market cap and
+        # issue price alone cannot establish valuation. Do not fabricate.
+        return None
+
+    def _calculate_ipo_quality(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        components: List[float] = []
+
+        explicit = m.get("ipo_quality")
+
+        if explicit is not None:
+            components.append(_clip(explicit, 0.0, 100.0))
+
+        business = m.get("business")
+
+        if business is not None:
+            components.append(_clip(business, 0.0, 100.0))
+
+        revenue_growth = m.get("revenue_growth")
+
+        if revenue_growth is not None:
+            score = _continuous_score(
+                revenue_growth,
+                neutral=8.0,
+                scale=12.0,
+            )
+
+            components.append(score)
+
+        earnings_growth = m.get("earnings_growth")
+
+        if earnings_growth is not None:
+            score = _continuous_score(
+                earnings_growth,
+                neutral=10.0,
+                scale=15.0,
+            )
+
+            components.append(score)
+
+        roe = m.get("roe")
+
+        if roe is not None:
+            components.append(
+                _continuous_score(
+                    roe,
+                    neutral=12.0,
+                    scale=8.0,
+                )
+            )
+
+        roce = m.get("roce")
+
+        if roce is not None:
+            components.append(
+                _continuous_score(
+                    roce,
+                    neutral=12.0,
+                    scale=8.0,
+                )
+            )
+
+        if not components:
+            return None
+
+        score = _clip(
+            sum(components) / len(components),
+            0.0,
+            100.0,
+        )
+
+        if score >= 60.0:
+            nodes.append(
+                EvidenceNode(
+                    "ipo_quality",
+                    1.0,
+                    abs(score - 50.0) / 50.0,
+                    "Available business-quality and growth evidence "
+                    "supports a stronger IPO quality profile.",
+                )
+            )
+        elif score <= 40.0:
+            nodes.append(
+                EvidenceNode(
+                    "ipo_quality",
+                    -1.0,
+                    abs(score - 50.0) / 50.0,
+                    "Available business-quality evidence indicates "
+                    "a weaker IPO quality profile.",
+                )
+            )
+
+        return score
+
+    def _calculate_listing(
+        self,
+        m: Dict[str, Optional[float]],
+        histories: Dict[str, List[Tuple[float, float, str, Any]]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        explicit = m.get("listing")
+
+        if explicit is not None:
+            score = _clip(explicit, 0.0, 100.0)
+
+            nodes.append(
+                EvidenceNode(
+                    "listing",
+                    1.0 if score >= 50.0 else -1.0,
+                    abs(score - 50.0) / 50.0,
+                    f"Listing strength score is {score:.1f}.",
+                )
+            )
+
+            return score
+
+        issue = m.get("issue_price")
+        listing = m.get("listing_price")
+
+        if issue is None or listing is None or issue <= 0:
+            return None
+
+        listing_return = ((listing / issue) - 1.0) * 100.0
+
+        score = _continuous_score(
+            listing_return,
+            neutral=0.0,
+            scale=10.0,
+        )
+
+        direction = 1.0 if listing_return > 0 else -1.0
+
+        nodes.append(
+            EvidenceNode(
+                "listing",
+                direction,
+                min(abs(listing_return) / 20.0, 1.0),
+                f"Listing price is {listing_return:.1f}% "
+                f"relative to the issue price.",
+            )
+        )
+
+        return score
+
+    def _calculate_subscription(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        value = m.get("subscription")
+
+        if value is None:
+            return None
+
+        if value < 0:
+            return None
+
+        # Subscription multiples are not converted into arbitrary scoring
+        # values. The curve is continuous and deterministic.
+        score = _continuous_score(
+            value,
+            neutral=5.0,
+            scale=5.0,
+        )
+
+        nodes.append(
+            EvidenceNode(
+                "subscription",
+                1.0 if value >= 5.0 else -1.0,
+                min(abs(value - 5.0) / 10.0, 1.0),
+                f"Overall IPO subscription is {value:.2f}x.",
+            )
+        )
+
+        return score
+
+    def _calculate_institutional(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        value = m.get("institutional")
+
+        if value is None:
+            return None
+
+        if value < 0:
+            return None
+
+        score = _continuous_score(
+            value,
+            neutral=5.0,
+            scale=5.0,
+        )
+
+        nodes.append(
+            EvidenceNode(
+                "institutional",
+                1.0 if value >= 5.0 else -1.0,
+                min(abs(value - 5.0) / 10.0, 1.0),
+                f"Institutional/QIB subscription is {value:.2f}x.",
+            )
+        )
+
+        return score
+
+    def _calculate_anchor(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        value = m.get("anchor")
+
+        if value is None:
+            return None
+
+        if value < 0:
+            return None
+
+        score = _continuous_score(
+            value,
+            neutral=1.0,
+            scale=0.5,
+        )
+
+        nodes.append(
+            EvidenceNode(
+                "anchor",
+                1.0 if value >= 1.0 else -1.0,
+                min(abs(value - 1.0), 1.0),
+                f"Anchor demand/allocation metric is {value:.2f}.",
+            )
+        )
+
+        return score
+
+    def _calculate_demand(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        explicit = m.get("demand")
+
+        if explicit is not None:
+            score = _clip(explicit, 0.0, 100.0)
+
+            nodes.append(
+                EvidenceNode(
+                    "demand",
+                    1.0 if score >= 50.0 else -1.0,
+                    abs(score - 50.0) / 50.0,
+                    f"IPO demand score is {score:.1f}.",
+                )
+            )
+
+            return score
+
+        subscription = m.get("subscription")
+        institutional = m.get("institutional")
+
+        components: List[float] = []
+
+        if subscription is not None:
+            components.append(
+                _continuous_score(
+                    subscription,
+                    neutral=5.0,
+                    scale=5.0,
+                )
+            )
+
+        if institutional is not None:
+            components.append(
+                _continuous_score(
+                    institutional,
+                    neutral=5.0,
+                    scale=5.0,
+                )
+            )
+
+        if not components:
+            return None
+
+        score = sum(components) / len(components)
+
+        nodes.append(
+            EvidenceNode(
+                "demand",
+                1.0 if score >= 50.0 else -1.0,
+                abs(score - 50.0) / 50.0,
+                "Demand strength is derived from available subscription "
+                "and institutional-demand evidence.",
+            )
+        )
+
+        return _clip(score, 0.0, 100.0)
+
+    def _calculate_liquidity(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        explicit = m.get("liquidity")
+
+        if explicit is not None:
+            score = _clip(explicit, 0.0, 100.0)
+
+            nodes.append(
+                EvidenceNode(
+                    "liquidity",
+                    1.0 if score >= 50.0 else -1.0,
+                    abs(score - 50.0) / 50.0,
+                    f"IPO liquidity score is {score:.1f}.",
+                )
+            )
+
+            return score
+
+        issue_size = m.get("issue_size")
+        market_cap = m.get("market_cap")
+
+        if issue_size is None or market_cap is None:
+            return None
+
+        if market_cap <= 0 or issue_size < 0:
+            return None
+
+        # This is a structural liquidity proxy only when both values exist.
+        ratio = issue_size / market_cap
+
+        score = _continuous_score(
+            ratio,
+            neutral=0.05,
+            scale=0.05,
+            invert=True,
+        )
+
+        nodes.append(
+            EvidenceNode(
+                "liquidity",
+                1.0 if score >= 50.0 else -1.0,
+                abs(score - 50.0) / 50.0,
+                f"Issue-size to market-capitalization ratio is "
+                f"{ratio:.2%}.",
+            )
+        )
+
+        return _clip(score, 0.0, 100.0)
+
+    def _calculate_business(
+        self,
+        m: Dict[str, Optional[float]],
+        nodes: List[EvidenceNode],
+    ) -> Optional[float]:
+
+        components: List[float] = []
+
+        explicit = m.get("business")
+
+        if explicit is not None:
+            components.append(_clip(explicit, 0.0, 100.0))
+
+        revenue_growth = m.get("revenue_growth")
+
+        if revenue_growth is not None:
+            components.append(
+                _continuous_score(
+                    revenue_growth,
+                    neutral=8.0,
+                    scale=12.0,
+                )
+            )
+
+        earnings_growth = m.get("earnings_growth")
+
+        if earnings_growth is not None:
+            components.append(
+                _continuous_score(
+                    earnings_growth,
+                    neutral=10.0,
+                    scale=15.0,
+                )
+            )
+
+        roe = m.get("roe")
+
+        if roe is not None:
+            components.append(
+                _continuous_score(
+                    roe,
+                    neutral=12.0,
+                    scale=8.0,
+                )
+            )
+
+        roce = m.get("roce")
+
+        if roce is not None:
+            components.append(
+                _continuous_score(
+                    roce,
+                    neutral=12.0,
+                    scale=8.0,
+                )
+            )
+
+        margin = m.get("profit_margin")
+
+        if margin is not None:
+            components.append(
+                _continuous_score(
+                    margin,
+                    neutral=8.0,
+                    scale=6.0,
+                )
+            )
+
+        if not components:
+            return None
+
+        score = _clip(
+            sum(components) / len(components),
+            0.0,
+            100.0,
+        )
+
+        if score >= 60.0:
+            nodes.append(
+                EvidenceNode(
+                    "business",
+                    1.0,
+                    abs(score - 50.0) / 50.0,
+                    "Available operating and fundamental metrics "
+                    "indicate stronger business quality.",
+                )
+            )
+        elif score <= 40.0:
+            nodes.append(
+                EvidenceNode(
+                    "business",
+                    -1.0,
+                    abs(score - 50.0) / 50.0,
+                    "Available operating and fundamental metrics "
+                    "indicate weaker business quality.",
+                )
+            )
+
+        return score
+
+    # ========================================================================
+    # OPPORTUNITY
+    # ========================================================================
+
+    def _calculate_opportunity(
+        self,
+        *,
+        risk_score: Optional[float],
+        valuation_score: Optional[float],
+        ipo_quality_score: Optional[float],
+        listing_score: Optional[float],
+        subscription_score: Optional[float],
+        institutional_score: Optional[float],
+        anchor_score: Optional[float],
+        demand_score: Optional[float],
+        liquidity_score: Optional[float],
+        business_score: Optional[float],
+    ) -> Optional[float]:
+
+        components: List[Tuple[float, float]] = []
+
+        if risk_score is not None:
+            components.append((100.0 - risk_score, 1.5))
+
+        if valuation_score is not None:
+            components.append((valuation_score, 1.5))
+
+        if ipo_quality_score is not None:
+            components.append((ipo_quality_score, 1.5))
+
+        if listing_score is not None:
+            components.append((listing_score, 0.75))
+
+        if subscription_score is not None:
+            components.append((subscription_score, 1.0))
+
+        if institutional_score is not None:
+            components.append((institutional_score, 1.25))
+
+        if anchor_score is not None:
+            components.append((anchor_score, 0.75))
+
+        if demand_score is not None:
+            components.append((demand_score, 1.0))
+
+        if liquidity_score is not None:
+            components.append((liquidity_score, 0.75))
+
+        if business_score is not None:
+            components.append((business_score, 1.5))
+
+        if not components:
+            return None
+
+        numerator = sum(
+            value * weight
+            for value, weight in components
+        )
+
+        denominator = sum(
+            weight
+            for _, weight in components
+        )
+
+        if denominator <= 0:
+            return None
+
+        return _clip(
+            numerator / denominator,
+            0.0,
+            100.0,
+        )
+
+    # ========================================================================
+    # CONTRADICTIONS
+    # ========================================================================
+
+    def _detect_contradictions(
+        self,
+        *,
+        risk_score: Optional[float],
+        valuation_score: Optional[float],
+        demand_score: Optional[float],
+        institutional_score: Optional[float],
+        business_score: Optional[float],
+        subscription_score: Optional[float],
+        listing_score: Optional[float],
+        nodes: List[EvidenceNode],
+    ) -> None:
+
+        if (
+            valuation_score is not None
+            and demand_score is not None
+            and valuation_score <= 30.0
+            and demand_score >= 70.0
+        ):
+            nodes.append(
+                EvidenceNode(
+                    "contradiction",
+                    -1.0,
+                    0.8,
+                    "Contradiction: strong demand is present alongside "
+                    "an unattractive valuation assessment.",
+                )
+            )
+
+        if (
+            risk_score is not None
+            and business_score is not None
+            and risk_score >= 70.0
+            and business_score >= 70.0
+        ):
+            nodes.append(
+                EvidenceNode(
+                    "contradiction",
+                    -1.0,
+                    0.75,
+                    "Contradiction: strong business quality coexists "
+                    "with elevated IPO risk.",
+                )
+            )
+
+        if (
+            institutional_score is not None
+            and subscription_score is not None
+            and institutional_score >= 70.0
+            and subscription_score <= 30.0
+        ):
+            nodes.append(
+                EvidenceNode(
+                    "contradiction",
+                    -1.0,
+                    0.65,
+                    "Contradiction: institutional demand is strong "
+                    "while overall subscription remains weak.",
+                )
+            )
+
+        if (
+            listing_score is not None
+            and demand_score is not None
+            and listing_score <= 30.0
+            and demand_score >= 70.0
+        ):
+            nodes.append(
+                EvidenceNode(
+                    "contradiction",
+                    -1.0,
+                    0.65,
+                    "Contradiction: strong measured demand exists "
+                    "despite weak listing performance.",
+                )
+            )
+
+    # ========================================================================
+    # EVIDENCE
+    # ========================================================================
+
+    def _format_evidence(
+        self,
+        nodes: List[EvidenceNode],
+    ) -> List[Dict[str, Any]]:
+
+        output: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for node in nodes:
+            if node.message in seen:
+                continue
+
+            seen.add(node.message)
+
+            magnitude = _clip(
+                abs(node.magnitude),
+                0.0,
+                1.0,
+            )
+
+            reliability = _clip(
+                0.70 + (magnitude * 0.30),
+                0.0,
+                1.0,
+            )
+
+            likelihood_ratio = _lr(
+                magnitude,
+                node.direction,
+            )
+
+            output.append(
+                {
+                    "category": "IPO",
+                    "domain": node.domain,
+                    "message": str(node.message),
+                    "reliability": _safe_round(
+                        reliability,
+                        6,
+                    ),
+                    "likelihood_ratio": _safe_round(
+                        likelihood_ratio,
+                        6,
+                    ),
+                }
+            )
+
+        output.sort(
+            key=lambda item: abs(
+                float(item.get("likelihood_ratio", 1.0)) - 1.0
+            ),
+            reverse=True,
+        )
+
+        return output
+
+    # ========================================================================
+    # CONFIDENCE
+    # ========================================================================
+
+    def _calculate_confidence(
+        self,
+        *,
+        feature_trace_summary: Dict[str, Any],
+        domain_coverage: Dict[str, Any],
+        evidence: List[Dict[str, Any]],
+        snapshots: List[Dict[str, Any]],
+    ) -> float:
+
+        feature_coverage = float(
+            feature_trace_summary.get(
+                "coverage_pct",
+                0.0,
+            )
+        )
+
+        domain_values = [
+            float(value.get("coverage_pct", 0.0))
+            for value in domain_coverage.values()
+            if isinstance(value, Mapping)
+        ]
+
+        domain_coverage_pct = (
+            sum(domain_values) / len(domain_values)
+            if domain_values
+            else 0.0
+        )
+
+        history_depth = min(
+            len(snapshots) / 5.0,
+            1.0,
+        ) * 20.0
+
+        evidence_component = min(
+            len(evidence),
+            10,
+        ) * 1.0
+
+        confidence = (
+            feature_coverage * 0.45
+            + domain_coverage_pct * 0.30
+            + history_depth
+            + evidence_component
+        )
+
+        contradictions = sum(
+            1
+            for item in evidence
+            if item.get("domain") == "contradiction"
+        )
+
+        confidence -= contradictions * 5.0
+
+        return _clip(
+            confidence,
+            0.0,
+            100.0,
+        )
+
+    # ========================================================================
+    # FALLBACK
+    # ========================================================================
+
+    def _empty(self) -> Dict[str, Any]:
+        total_features = len(FIELD_CONTRACTS)
+
+        missing = sorted(FIELD_CONTRACTS.keys())
 
         return {
-            "quality_score": q_s, "demand_score": d_s, "opportunity_score": o_s, "listing_score": l_s, 
-            "risk_score": 100.0-r_s, "base_weighted_score": base, "penalty_deduction": penalty, 
-            "bayesian_confidence_multiplier": conf_mult, "overall_ipo_score": final_score, "investment_grade": ig
+            "ipo_analyzer": {
+                "confidence": 0.0,
+
+                "risk": None,
+                "risk_status": "unknown",
+
+                "valuation": None,
+                "valuation_status": "unknown",
+
+                "ipo_quality": None,
+                "ipo_quality_status": "unknown",
+
+                "listing": None,
+                "listing_status": "unknown",
+
+                "subscription": None,
+                "subscription_status": "unknown",
+
+                "institutional": None,
+                "institutional_status": "unknown",
+
+                "anchor": None,
+                "anchor_status": "unknown",
+
+                "demand": None,
+                "demand_status": "unknown",
+
+                "liquidity": None,
+                "liquidity_status": "unknown",
+
+                "business": None,
+                "business_status": "unknown",
+
+                "opportunity": None,
+                "opportunity_status": "unknown",
+
+                "feature_coverage_pct": 0.0,
+
+                "feature_trace_summary": {
+                    "total_features": total_features,
+                    "used_features": 0,
+                    "available_not_used": 0,
+                    "missing_features": total_features,
+                    "invalid_features": 0,
+                    "coverage_pct": 0.0,
+                    "used_feature_names": [],
+                    "available_not_used_names": [],
+                    "missing_feature_names": missing,
+                    "invalid_feature_names": [],
+                },
+
+                "feature_trace": {
+                    feature: {
+                        "status": "missing",
+                        "feature": feature,
+                        "source_field": None,
+                        "raw_value": None,
+                        "multiplier": None,
+                        "normalized_value": None,
+                        "historical_points": 0,
+                        "latest_timestamp": 0.0,
+                        "aliases_checked": [
+                            alias
+                            for alias, _ in FIELD_CONTRACTS[feature]
+                        ],
+                    }
+                    for feature in FIELD_CONTRACTS
+                },
+
+                "domain_coverage": {},
+
+                "evidence": [],
+            }
         }
 
-    # ---------------------------------------------------------
-    # 9. SUMMARY
-    # ---------------------------------------------------------
-    def _generate_summary(self, comp, opp, all_ev, l1) -> SummaryResult:
-        score = comp['overall_ipo_score']
-        th = self.config['action_thresholds']
 
-        if score >= th['strong_apply']: action = "STRONG APPLY"
-        elif score >= th['apply']: action = "APPLY"
-        elif score >= th['watch']: action = "WATCH"
-        else: action = "AVOID"
+# ============================================================================
+# MODULE-LEVEL API
+# ============================================================================
 
-        prob_success, _ = self._bayesian_aggregation(all_ev)
-        prob_failure = 1.0 - prob_success
+def analyze(
+    data: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """
+    Public module-level analyzer entry point.
+    """
+    return IPOAnalyzer().analyze(
+        data,
+        *args,
+        **kwargs,
+    )
 
-        sorted_ev = sorted(all_ev, key=lambda x: x['weight']*x['reliability']*abs(math.log(max(x['likelihood_ratio'], 1e-5))), reverse=True)
-        why_apply = [e['explanation'] for e in sorted_ev if e['polarity'] > 0][:3]
-        why_avoid = [e['explanation'] for e in sorted_ev if e['polarity'] < 0][:3]
 
-        rng = f"₹{opp['p10_listing_estimate']:.1f} - ₹{opp['p90_listing_estimate']:.1f} (Base: ₹{opp['p50_listing_estimate']:.1f})"
-
-        return {
-            "recommended_action": action, 
-            "why_apply": why_apply if why_apply else ["Neutral Framework"], 
-            "why_avoid": why_avoid if why_avoid else ["No major flags"], 
-            "expected_listing_range": rng, 
-            "expected_1_month_return": opp['margin_of_safety'] * 0.8, 
-            "expected_6_month_return": opp['margin_of_safety'] * 1.5, 
-            "expected_cagr": l1.get('profit_growth', 0.0), 
-            "probability_of_success": prob_success * 100.0, 
-            "probability_of_failure": prob_failure * 100.0
-        }
+__all__ = [
+    "IPOAnalyzer",
+    "analyze",
+    "FIELD_CONTRACTS",
+]

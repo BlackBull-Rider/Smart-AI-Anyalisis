@@ -1,214 +1,377 @@
+from __future__ import annotations
+
 import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Any, Tuple
+import math
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-EPSILON = 1e-9
+EPS = 1e-12
+MIN_LR = 0.15
+MAX_LR = 8.0
 
-PATTERN_CONFIG = {
-    "thresholds": {"min_confidence": 30.0, "high_quality": 75.0, "volume_conf_min": 1.2, "support_resistance_min": 60.0, "strong_breakout_prob": 70.0, "flag_retracement_max": 50.0, "volume_decay_max": 0.8},
-    "weights": {"volume_confirmation": 20.0, "structural_integrity": 25.0, "trend_alignment": 15.0, "efficiency": 10.0, "market_regime": 10.0, "evidence_agreement": 20.0},
-    "feature_importance": {"volume_confirmation": 2.0, "pattern_confidence": 2.0, "breakout_strength": 1.5, "market_regime": 1.0, "liquidity_sweep": 1.5, "trend_direction": 1.0, "efficiency_ratio": 1.0},
-    "regime_weights": {"Trending": 10.0, "Accumulation": 8.0, "Distribution": 8.0, "Volatile": 6.0, "Compression": 5.0, "Mean Reversion": 4.0, "Neutral": 5.0},
-    "false_breakout_multipliers": {"FLAG": 0.8, "PENNANT": 0.8, "CUP_HANDLE": 0.7, "ROUNDING_BOTTOM": 0.7, "ROUNDING_TOP": 0.7, "HEAD_SHOULDERS": 0.7, "INV_HEAD_SHOULDERS": 0.7, "TRIANGLE": 1.2, "WEDGE": 1.1, "CHANNEL": 1.0, "RECTANGLE": 1.3, "DOUBLE_TOP": 1.0, "DOUBLE_BOTTOM": 1.0, "TRIPLE_TOP": 0.9, "TRIPLE_BOTTOM": 0.9},
-    "priority": {"TRIANGLE": 1, "WEDGE": 2, "FLAG": 3, "PENNANT": 4, "CHANNEL": 5, "RECTANGLE": 6, "HEAD_SHOULDERS": 7, "INV_HEAD_SHOULDERS": 8, "CUP_HANDLE": 9, "DOUBLE_TOP": 10, "DOUBLE_BOTTOM": 10, "TRIPLE_TOP": 11, "TRIPLE_BOTTOM": 11, "ROUNDING_TOP": 12, "ROUNDING_BOTTOM": 12},
-    "penalties": {"missing_l1_feature_base": 0.90},
-    "base_probabilities": {"continuation_breakout": 60.0, "reversal_breakout": 40.0, "failure": 40.0},
-    "multipliers": {"target": {"flag": 4.0, "triangle": 3.0, "channel": 3.0, "rectangle": 2.5, "wedge": 3.5, "head_shoulders": 4.0, "cup_handle": 5.0, "tops_bottoms": 2.5, "triple_tops_bottoms": 3.0}, "stop_loss": {"atr_buffer": 0.5, "fallback_normal": 1.5, "fallback_wide": 2.0}}
-}
+# Centralized Feature List for Strict L3 Database Input Alignment
+REQUIRED_FEATURES = (
+    "close", "high", "low", "volume", "rvol_20", "vol_zscore", "adx_14", "rsi_14",
+    "pattern_confidence", "breakout_pressure", "trend_angle", 
+    "smart_money_candle", "liquidity_sweep_candle", "institutional_body",
+    "absorption_candle", "rejection_candle", "body_strength", "wick_strength",
+    "upper_wick", "lower_wick", "bullish_candle", "bearish_candle",
+    "engulfing_body", "hammer_shape", "inverted_hammer_shape", "shooting_star_shape", 
+    "hanging_man_shape", "doji", "dragonfly_doji", "gravestone_doji",
+    "double_top_detected", "double_bottom_detected", "hs_detected", "ihs_detected",
+    "triangle_detected", "wedge_detected", "cup_detected", "rounding_bottom_detected"
+)
 
-STRING_FEATURES = ['triangle_type', 'channel_type', 'wedge_type', 'market_regime', 'pattern_family', 'market_phase']
+def _num(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", "")
+            if not value: return None
+        value = float(value)
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
-class EvidenceItem(TypedDict):
-    category: str; type: str; weight: float; polarity: int; reliability: float; institutional_explanation: str
+def _clip(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
-class PatternDetailResult(TypedDict):
-    pattern_id: str; pattern_name: str; detected: bool; direction: str; confidence: float; quality: float
-    breakout_probability: float; failure_probability: float; entry_price: float; stop_loss: float
-    target_projection: float; risk_reward_profile: float; institutional_explanation: str; evidence: List[EvidenceItem]
+def _key(value: Any) -> str:
+    return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
-class AdvancedPatternMetrics(TypedDict):
-    primary_pattern_id: str; pattern_quality_index: float; structural_integrity: float; breakout_readiness: float
-    false_breakout_probability: float; pattern_completion_pct: float; pattern_maturity: str; volume_confirmation_score: float
-    institutional_conviction: float; pattern_reliability: float; market_context_score: float; system_confidence: float
-    pattern_conflict_score: float; pattern_consensus_score: float
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    n = _num(value)
+    if n is None or not math.isfinite(n):
+        return default
+    return float(n)
 
-class PatternAnalysisResult(TypedDict):
-    continuation_patterns: List[PatternDetailResult]; reversal_patterns: List[PatternDetailResult]
-    triangle_analysis: PatternDetailResult; channel_analysis: PatternDetailResult; rectangle_analysis: PatternDetailResult
-    flag_analysis: PatternDetailResult; wedge_analysis: PatternDetailResult; cup_handle_analysis: PatternDetailResult
-    head_shoulders_analysis: PatternDetailResult; advanced_pattern_metrics: AdvancedPatternMetrics
+def _raw(row: Mapping[str, Any], *names: str) -> Any:
+    """O(1) strict lookup assuming pre-normalized dictionary."""
+    for name in names:
+        val = row.get(_key(name))
+        if val is not None:
+            return val
+    return None
+
+def _value(row: Mapping[str, Any], *names: str) -> Optional[float]:
+    return _num(_raw(row, *names))
+
+def _sigmoid(value: float) -> float:
+    value = _clip(value, -40.0, 40.0)
+    return 1.0 / (1.0 + math.exp(-value))
+
+def _lr(weight: float) -> float:
+    return _clip(math.exp(_clip(weight, -1.9, 2.08)), MIN_LR, MAX_LR)
 
 class PatternAnalyzer:
-    # ==============================================================================
-    # PERFECT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
-    # ==============================================================================
-    EXPECTED_SCHEMA = [
-        'trend_direction', 'bos', 'choch', 'liquidity_sweep', 'market_regime', 
-        'efficiency_ratio', 'breakout_strength', 'volume_ratio', 'volume_confirmation', 
-        'support_strength', 'resistance_strength', 'pattern_confidence', 'trend_strength',
-        'swing_high', 'swing_low', 'neckline', 'triangle_upper', 'triangle_lower', 
-        'channel_upper', 'channel_lower', 'rectangle_upper', 'rectangle_lower', 
-        'triangle_detected', 'triangle_type', 'apex_distance', 'compression_pct', 
-        'breakout_pressure', 'channel_detected', 'channel_type', 'channel_width', 
-        'rectangle_detected', 'rectangle_width', 'flag_detected', 'pennant_detected', 
-        'flag_quality', 'pole_length', 'retracement_depth', 'volume_decay',
-        'wedge_detected', 'wedge_type', 'cup_detected', 'handle_detected', 
-        'rounding_top_detected', 'rounding_bottom_detected', 'hs_detected', 
-        'ihs_detected', 'hs_neckline_slope', 'hs_breakout_confirmed', 
-        'double_top_detected', 'double_bottom_detected', 'triple_top_detected', 
-        'triple_bottom_detected'
-    ]
+    """
+    World's No. 1 Institution Grade Pattern Analyzer.
+    Utilizes Synergistic Matching (Classical Macro + SMC Micro + Volume Profiling).
+    Optimized for DB-friendly nested/flat L3 payloads.
+    """
 
-    CRITICAL_FEATURES = ['close', 'atr', 'volume']
-    L1_FEATURES = [
-        'trend_direction', 'bos', 'choch', 'liquidity_sweep', 'market_regime', 'efficiency_ratio', 'breakout_strength', 
-        'volume_ratio', 'volume_confirmation', 'support_strength', 'resistance_strength', 'pattern_confidence', 'trend_strength',
-        'swing_high', 'swing_low', 'neckline', 'triangle_upper', 'triangle_lower', 'channel_upper', 'channel_lower', 
-        'rectangle_upper', 'rectangle_lower', 'triangle_detected', 'triangle_type', 'apex_distance', 'compression_pct', 
-        'breakout_pressure', 'channel_detected', 'channel_type', 'channel_width', 'rectangle_detected', 'rectangle_width',
-        'flag_detected', 'pennant_detected', 'flag_quality', 'pole_length', 'retracement_depth', 'volume_decay',
-        'wedge_detected', 'wedge_type', 'cup_detected', 'handle_detected', 'rounding_top_detected', 'rounding_bottom_detected',
-        'hs_detected', 'ihs_detected', 'hs_neckline_slope', 'hs_breakout_confirmed', 'double_top_detected', 'double_bottom_detected', 
-        'triple_top_detected', 'triple_bottom_detected'
-    ]
+    MACRO_PATTERNS = {
+        "ihs_detected": {"name": "Inverse Head & Shoulders", "dir": 1, "weight": 0.95},
+        "hs_detected": {"name": "Head & Shoulders", "dir": -1, "weight": 0.95},
+        "double_bottom_detected": {"name": "Double Bottom", "dir": 1, "weight": 0.85},
+        "double_top_detected": {"name": "Double Top", "dir": -1, "weight": 0.85},
+        "triple_bottom_detected": {"name": "Triple Bottom", "dir": 1, "weight": 0.90},
+        "triple_top_detected": {"name": "Triple Top", "dir": -1, "weight": 0.90},
+        "cup_detected": {"name": "Cup & Handle", "dir": 1, "weight": 0.80},
+        "rounding_bottom_detected": {"name": "Rounding Bottom", "dir": 1, "weight": 0.75}
+    }
 
-    def __init__(self):
-        self._missing_features: List[str] = []
+    BILATERAL_MACRO = {
+        "triangle_detected": {"name": "Triangle", "weight": 0.75},
+        "wedge_detected": {"name": "Wedge", "weight": 0.75}
+    }
 
-    def _validate_and_extract(self, df: pd.DataFrame) -> Dict[str, Any]:
-        self._missing_features.clear()
-        extracted = {}
-        
-        # QA Tracker কে ফায়ারিং করানোর জন্য সরাসরি df[feat] কল করা হচ্ছে
-        for feat in self.CRITICAL_FEATURES + self.L1_FEATURES:
-            if feat in df.columns:
-                val = df[feat].iloc[-1]  # <- এই লাইনের কারণেই এখন QA Tracker ১০০% কভারেজ দেবে!
-                if pd.notna(val):
-                    extracted[feat] = str(val) if feat in STRING_FEATURES else float(val)
-                else:
-                    extracted[feat] = "None" if feat in STRING_FEATURES else 0.0
+    MICRO_PATTERNS = {
+        "hammer_shape": {"name": "Hammer", "dir": 1, "weight": 0.60},
+        "inverted_hammer_shape": {"name": "Inverted Hammer", "dir": 1, "weight": 0.55},
+        "shooting_star_shape": {"name": "Shooting Star", "dir": -1, "weight": 0.60},
+        "hanging_man_shape": {"name": "Hanging Man", "dir": -1, "weight": 0.55},
+        "doji": {"name": "Doji", "dir": 0, "weight": 0.40},
+        "dragonfly_doji": {"name": "Dragonfly Doji", "dir": 1, "weight": 0.50},
+        "gravestone_doji": {"name": "Gravestone Doji", "dir": -1, "weight": 0.50},
+        "smart_money_candle": {"name": "Smart Money Block", "dir": 0, "weight": 0.85},
+        "liquidity_sweep_candle": {"name": "Liquidity Sweep", "dir": 0, "weight": 0.90},
+        "absorption_candle": {"name": "Absorption", "dir": 0, "weight": 0.80},
+        "rejection_candle": {"name": "Strong Rejection", "dir": 0, "weight": 0.80}
+    }
+
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+    def analyze(self, data: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        try:
+            rows = self._rows(data)
+            if not rows: return self._empty()
+
+            current = rows[-1]
+            close = _value(current, "close", "cmp", "price", "last_price")
+
+            if close is None or close <= 0:
+                result = self._empty()
+                result["pattern_analyzer"]["evidence"].append(
+                    self._evidence("Pattern", "Current price is unavailable or invalid in the DB payload.", 0.99, 0.35)
+                )
+                return result
+
+            # Coverage Tracing exactly from dataset
+            found_features = sum(1 for name in REQUIRED_FEATURES if _raw(current, name) is not None)
+            feature_coverage = (found_features / len(REQUIRED_FEATURES)) * 100.0
+
+            # Core Analysis
+            dominant_pattern, pattern_score, pattern_dir, institutional_modifiers = self._evaluate_patterns(current)
+            
+            # Status Mapping
+            if pattern_dir > 0.2:
+                pattern_status = "bullish"
+            elif pattern_dir < -0.2:
+                pattern_status = "bearish"
+            elif dominant_pattern != "None":
+                pattern_status = "neutral"
             else:
-                extracted[feat] = "None" if feat in STRING_FEATURES else 0.0
-                if feat not in self.CRITICAL_FEATURES:
-                    self._missing_features.append(feat)
+                pattern_status = "none"
 
-        for feat in self.CRITICAL_FEATURES:
-            if feat not in df.columns:
-                if feat == 'atr': extracted['atr'] = float(df['close'].rolling(14).std().iloc[-1]) if len(df)>14 else 1.0
-                elif feat == 'volume': extracted['volume'] = 1000.0
-                else: raise ValueError(f"PatternAnalyzer missing CRITICAL hook: {feat}")
+            # Apply Institutional Synergistic Naming
+            final_pattern_name = self._synergize_name(dominant_pattern, institutional_modifiers)
+
+            # Evidence & Confidence
+            evidence = self._evidence_engine(current, final_pattern_name, pattern_status, pattern_score, institutional_modifiers)
+            confidence = self._calculate_confidence(current, pattern_score, evidence)
+
+            return {
+                "pattern_analyzer": {
+                    "confidence": _safe_float(round(confidence, 4)),
+                    "pattern": str(final_pattern_name),
+                    "pattern_status": pattern_status,
+                    "feature_coverage": _safe_float(round(feature_coverage, 2)),
+                    "evidence": evidence,
+                }
+            }
+
+        except (ValueError, TypeError, KeyError, IndexError, ZeroDivisionError, ArithmeticError) as e:
+            self.logger.error(f"Pattern Analyzer Math/Format Error: {e}")
+            result = self._empty()
+            result["pattern_analyzer"]["evidence"].append(self._evidence("Pattern", "Data format or math failure in processing.", 0.96, 0.42))
+            return result
+        except Exception as e:
+            self.logger.exception(f"Pattern Analyzer Critical Failure: {e}")
+            result = self._empty()
+            result["pattern_analyzer"]["evidence"].append(self._evidence("Pattern", "Execution encountered a critical failure.", 0.96, 0.42))
+            return result
+
+    def _empty(self) -> Dict[str, Any]:
+        """Provides a DB friendly empty state ensuring L3 schema integrity."""
+        return {
+            "pattern_analyzer": {
+                "confidence": 0.0,
+                "pattern": "None",
+                "pattern_status": "none",
+                "feature_coverage": 0.0,
+                "evidence": [],
+            }
+        }
+
+    def _flatten_db_payload(self, data: Any) -> Dict[str, Any]:
+        flat = {}
+        if not isinstance(data, dict): return flat
+        for k, v in data.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    flat[_key(sub_k)] = sub_v
+            else:
+                flat[_key(k)] = v
+        return flat
+
+    def _rows(self, data: Any) -> List[Mapping[str, Any]]:
+        raw_rows = []
+        if data is None: return []
+
+        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+            try: raw_rows = data.to_dict(orient="records")
+            except Exception: return []
+        elif isinstance(data, Mapping):
+            found_nested_list = False
+            for name in ("features", "data", "payload", "rows", "historical_data"):
+                nested = data.get(name)
+                if isinstance(nested, list):
+                    raw_rows = nested
+                    found_nested_list = True
+                    break
+            if not found_nested_list: raw_rows = [self._flatten_db_payload(data)]
+        elif isinstance(data, Sequence) and not isinstance(data, (str, bytes, bytearray)):
+            raw_rows = [self._flatten_db_payload(item) if isinstance(item, dict) else item for item in data if isinstance(item, Mapping)]
+
+        normalized_rows = []
+        for row in raw_rows:
+            normalized = {}
+            for k, v in row.items(): normalized[_key(k)] = v
+            normalized_rows.append(normalized)
+            
+        return normalized_rows
+
+    def _evaluate_patterns(self, current: Mapping[str, Any]) -> Tuple[str, float, int, List[str]]:
+        """Advanced ranking algorithm to identify the dominant pattern + institutional footprint."""
+        
+        candidates = []
+        institutional_modifiers = []
+        
+        # Explicit handling of pattern_confidence to avoid 0.0 being falsy
+        sys_conf = _value(current, "pattern_confidence")
+        if sys_conf is None:
+            sys_conf = 50.0
+            
+        rvol = _value(current, "rvol_20", "volume_ratio") or 1.0
+        zscore = _value(current, "vol_zscore") or 0.0
+        vol_multiplier = 1.0 + _clip((rvol - 1.0) * 0.2 + (zscore * 0.1), 0.0, 0.5)
+        
+        bullish_c = _value(current, "bullish_candle") == 1.0
+        bearish_c = _value(current, "bearish_candle") == 1.0
+
+        # 1. Macro Patterns
+        for key, meta in self.MACRO_PATTERNS.items():
+            if _value(current, key) == 1.0:
+                score = meta["weight"] * sys_conf * vol_multiplier
+                candidates.append((meta["name"], score, meta["dir"], "macro"))
+
+        # 2. Bilateral Macros
+        trend_angle = _value(current, "trend_angle") or 0.0
+        breakout_pr = _value(current, "breakout_pressure") or 50.0
+        
+        for key, meta in self.BILATERAL_MACRO.items():
+            if _value(current, key) == 1.0:
+                dir_val = 1 if (breakout_pr > 50 or trend_angle > 0) else -1
+                score = meta["weight"] * sys_conf * vol_multiplier
+                candidates.append((meta["name"], score, dir_val, "macro"))
+
+        # 3. Structural/Micro Patterns
+        if _value(current, "engulfing_body") == 1.0:
+            dir_val = 1 if bullish_c else -1 if bearish_c else 0
+            if dir_val != 0:
+                name = "Bullish Engulfing" if dir_val == 1 else "Bearish Engulfing"
+                candidates.append((name, 0.75 * 100 * vol_multiplier, dir_val, "micro"))
+
+        for key, meta in self.MICRO_PATTERNS.items():
+            if _value(current, key) == 1.0:
+                dir_val = meta["dir"]
+                
+                # Dynamic direction resolution for neutral context SMC
+                if dir_val == 0:
+                    if key in ["smart_money_candle", "absorption_candle"]:
+                        if bullish_c: dir_val = 1
+                        elif bearish_c: dir_val = -1
+                        else: dir_val = 0
+                        institutional_modifiers.append("SMC Block" if key == "smart_money_candle" else "Absorption")
                     
-        return extracted
+                    elif key in ["liquidity_sweep_candle", "rejection_candle"]:
+                        l_wick = _value(current, "lower_wick") or 0.0
+                        u_wick = _value(current, "upper_wick") or 0.0
+                        if l_wick > u_wick: dir_val = 1
+                        elif u_wick > l_wick: dir_val = -1
+                        else: dir_val = 0
+                        institutional_modifiers.append("Liquidity Sweep" if key == "liquidity_sweep_candle" else "Strong Rejection")
+                
+                score = meta["weight"] * 100 * vol_multiplier
+                candidates.append((meta["name"], score, dir_val, "micro"))
 
-    def _empty_pattern(self, name: str = "None", p_id: str = "NONE") -> PatternDetailResult:
-        return {"pattern_id": p_id, "pattern_name": name, "detected": False, "direction": "Neutral", "confidence": 0.0, "quality": 0.0, "breakout_probability": 0.0, "failure_probability": 0.0, "entry_price": 0.0, "stop_loss": 0.0, "target_projection": 0.0, "risk_reward_profile": 0.0, "institutional_explanation": "No valid structural pattern detected.", "evidence": []}
+        if not candidates:
+            return "None", 0.0, 0, institutional_modifiers
 
-    def _get_normalized_trend(self, l1: Dict[str, Any]) -> int:
-        raw_trend = float(l1.get('trend_direction', 1.0))
-        return 1 if raw_trend > 0.1 else -1 if raw_trend < -0.1 else 0
-
-    def _calculate_confidence(self, l1: Dict[str, Any], aligned_evidence: List[EvidenceItem]) -> Tuple[float, float, float]:
-        score = 0.0
-        max_score = sum(PATTERN_CONFIG["weights"].values())
-        evidence_score = 0.0
-        if aligned_evidence:
-            total_w = sum(e['weight'] for e in aligned_evidence)
-            if total_w > 0: evidence_score = (sum(e['weight'] * e['reliability'] for e in aligned_evidence) / total_w) * 100.0
-            score += (evidence_score / 100.0) * PATTERN_CONFIG["weights"]["evidence_agreement"]
-
-        vol_conf = l1.get('volume_confirmation', l1.get('volume_ratio', 1.0))
-        if vol_conf >= PATTERN_CONFIG["thresholds"]["volume_conf_min"]: score += PATTERN_CONFIG["weights"]["volume_confirmation"]
-        score += (l1.get('trend_strength', 50.0) / 100.0) * PATTERN_CONFIG["weights"]["trend_alignment"]
-        struct_int = l1.get('pattern_confidence', 50.0)
-        score += (struct_int / 100.0) * PATTERN_CONFIG["weights"]["structural_integrity"]
-        eff_ratio = l1.get('efficiency_ratio', 0.5)
-        score += eff_ratio * PATTERN_CONFIG["weights"]["efficiency"]
-        regime = str(l1.get('market_regime', 'Neutral'))
-        score += (PATTERN_CONFIG["regime_weights"].get(regime, 5.0) / 10.0) * PATTERN_CONFIG["weights"]["market_regime"]
+        # Sort by Score Descending
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        dominant = candidates[0]
         
-        raw_conf = (score / max_score) * 100.0 if max_score > 0 else 0.0
-        missing_weight_sum = sum(PATTERN_CONFIG["feature_importance"].get(f, 0.5) for f in self._missing_features)
-        penalty_factor = PATTERN_CONFIG["penalties"]["missing_l1_feature_base"] ** (missing_weight_sum / 5.0)
+        return dominant[0], dominant[1], dominant[2], institutional_modifiers
+
+    def _synergize_name(self, base_name: str, modifiers: List[str]) -> str:
+        if base_name == "None":
+            return "None"
+            
+        unique_mods = list(dict.fromkeys(modifiers))
+        if base_name in ["Liquidity Sweep", "Smart Money Block", "Absorption", "Strong Rejection"]:
+            return base_name
+
+        if unique_mods:
+            return f"{base_name} ({', '.join(unique_mods)})"
+        return base_name
+
+    def _evidence_engine(self, current: Mapping[str, Any], pattern_name: str, status: str, score: float, modifiers: List[str]) -> List[Dict[str, Any]]:
+        evidence: List[Dict[str, Any]] = []
+
+        if pattern_name == "None":
+            evidence.append(self._evidence("Pattern", "No distinct institutional or classical patterns detected in the current window.", 0.95, 0.50))
+            return evidence
+
+        # Base Pattern Evidence
+        reliability = _clip(score / 150.0, 0.60, 0.98) 
+        lr = _lr(1.5 * (reliability - 0.5))
+        evidence.append(self._evidence("Pattern", f"Primary pattern identified as {pattern_name} with {status} implications.", reliability, lr))
+
+        # Institutional Confluence
+        if modifiers:
+            evidence.append(self._evidence("Pattern", f"Pattern carries institutional footprint validation: {', '.join(modifiers)}.", 0.90, 1.85))
+
+        # Volume Confirmation
+        rvol = _value(current, "rvol_20", "volume_ratio")
+        zscore = _value(current, "vol_zscore")
         
-        return np.clip(raw_conf * penalty_factor, 0.0, 100.0), np.clip((struct_int * 0.5) + (eff_ratio * 30.0) + (evidence_score * 0.2), 0.0, 100.0), np.clip(vol_conf * 33.3, 0.0, 100.0)
+        if rvol is not None and rvol > 1.2:
+            evidence.append(self._evidence("Pattern", f"Pattern formation is heavily validated by relative volume expansion ({rvol:.2f}x average).", 0.85, 1.60))
+        elif rvol is not None and rvol < 0.8:
+            evidence.append(self._evidence("Pattern", f"Pattern formation lacks volume participation ({rvol:.2f}x average), risking a false signal.", 0.80, 0.65))
 
-    def _calc_structure_sl(self, l1: Dict[str, Any], entry: float, pol: int, struct_level: float = 0.0) -> float:
-        atr_buffer = l1.get('atr', 0.0) * PATTERN_CONFIG["multipliers"]["stop_loss"]["atr_buffer"]
-        valid_levels = [struct_level] if struct_level > 0 else []
-        sl_swing = l1.get('swing_low', 0.0) if pol == 1 else l1.get('swing_high', 0.0)
-        if sl_swing > 0: valid_levels.append(sl_swing)
+        if zscore is not None and zscore > 1.5:
+            evidence.append(self._evidence("Pattern", f"Extreme volume anomaly (Z-Score: {zscore:.2f}) indicates major institutional participation.", 0.88, 1.75))
+
+        # Momentum Context
+        rsi = _value(current, "rsi_14")
+        if rsi is not None:
+            if status == "bullish" and rsi < 40:
+                evidence.append(self._evidence("Pattern", f"Bullish pattern aligns with oversold/divergent RSI context ({rsi:.1f}).", 0.82, 1.45))
+            elif status == "bearish" and rsi > 60:
+                evidence.append(self._evidence("Pattern", f"Bearish pattern aligns with overbought/divergent RSI context ({rsi:.1f}).", 0.82, 1.45))
+
+        return self._unique_evidence(evidence)
+
+    def _calculate_confidence(self, current: Mapping[str, Any], score: float, evidence: Sequence[Mapping[str, Any]]) -> float:
+        if score == 0.0: return 0.0
+
+        completeness = sum(1 for name in REQUIRED_FEATURES if _raw(current, name) is not None) / len(REQUIRED_FEATURES)
+        evidence_quality = sum(_num(item.get("reliability")) or 0.0 for item in evidence) / max(len(evidence), 1)
         
-        if pol == 1:
-            valid_levels = [v for v in valid_levels if v < entry]
-            best_level = max(valid_levels) if valid_levels else entry - (l1.get('atr', 0.0) * PATTERN_CONFIG["multipliers"]["stop_loss"]["fallback_normal"])
-            return best_level - atr_buffer
-        else:
-            valid_levels = [v for v in valid_levels if v > entry]
-            best_level = min(valid_levels) if valid_levels else entry + (l1.get('atr', 0.0) * PATTERN_CONFIG["multipliers"]["stop_loss"]["fallback_normal"])
-            return best_level + atr_buffer
+        contradictions = sum(1 for item in evidence if ((_num(item.get("likelihood_ratio")) or 1.0) < 0.82))
+        contradiction_ratio = _clip(contradictions / max(len(evidence), 1), 0.0, 0.40)
 
-    def _calc_rr(self, entry: float, sl: float, target: float) -> float:
-        return round(abs(target - entry) / (abs(entry - sl) + EPSILON), 2)
-
-    def _calc_false_breakout(self, l1: Dict[str, Any], p_id: str, quality: float, vol_score: float) -> float:
-        sweep = 15.0 if l1.get('liquidity_sweep', 0) != 0 else 0.0
-        base_fbo = ((100.0 - quality) * 0.3) + ((100.0 - vol_score) * 0.3) + ((100.0 - l1.get('breakout_strength', 50.0)) * 0.2) + sweep - PATTERN_CONFIG["regime_weights"].get(str(l1.get('market_regime', 'Neutral')), 5.0)
-        return np.clip(base_fbo * PATTERN_CONFIG["false_breakout_multipliers"].get(p_id, 1.0), 0.0, 100.0)
-
-    def _analyze_triangles(self, l1: Dict[str, Any]) -> PatternDetailResult:
-        if not l1.get('triangle_detected', 0.0): return self._empty_pattern("Triangle", "TRIANGLE")
-        t_type = str(l1.get('triangle_type', 'Symmetrical'))
-        pol = 1 if t_type == 'Ascending' else -1 if t_type == 'Descending' else self._get_normalized_trend(l1)
-        if pol == 0: pol = 1 
-        evidence = [{"category": "Structure", "type": "Volatility_Contraction", "weight": 30.0, "polarity": pol, "reliability": 0.85, "institutional_explanation": f"Order flow converging via algorithmic limit barriers."}]
-        conf, quality, _ = self._calculate_confidence(l1, evidence)
-        entry, struct_level = l1['close'], l1.get('triangle_lower', 0.0) if pol == 1 else l1.get('triangle_upper', 0.0)
-        sl, target = self._calc_structure_sl(l1, entry, pol, struct_level), entry + (l1['atr'] * PATTERN_CONFIG["multipliers"]["target"]["triangle"] * pol)
-        return {"pattern_id": "TRIANGLE", "pattern_name": f"{t_type} Triangle", "detected": True, "direction": "Bullish" if pol == 1 else "Bearish", "confidence": conf, "quality": quality, "breakout_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["continuation_breakout"] + (conf * 0.2), 0.0, 100.0), "failure_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["failure"] - (quality * 0.2), 0.0, 100.0), "entry_price": entry, "stop_loss": sl, "target_projection": target, "risk_reward_profile": self._calc_rr(entry, sl, target), "institutional_explanation": "Volatility contraction precedes directional expansion.", "evidence": evidence}
-
-    def _analyze_flags(self, l1: Dict[str, Any]) -> PatternDetailResult:
-        is_flag, is_pennant = l1.get('flag_detected', 0.0) > 0.0, l1.get('pennant_detected', 0.0) > 0.0
-        if not is_flag and not is_pennant: return self._empty_pattern("Flag/Pennant", "FLAG")
-        pol = self._get_normalized_trend(l1)
-        if pol == 0: pol = 1
-        evidence = [{"category": "Structure", "type": "Healthy_Retracement", "weight": 20.0, "polarity": pol, "reliability": 0.90, "institutional_explanation": "Shallow pullback indicates strong dominant hands."}]
-        conf, quality, _ = self._calculate_confidence(l1, evidence)
-        entry, struct_level = l1['close'], l1.get('channel_lower', 0.0) if pol == 1 else l1.get('channel_upper', 0.0)
-        sl, target = self._calc_structure_sl(l1, entry, pol, struct_level), entry + (l1['atr'] * PATTERN_CONFIG["multipliers"]["target"]["flag"] * pol)
-        return {"pattern_id": "PENNANT" if is_pennant else "FLAG", "pattern_name": ("Bull " if pol == 1 else "Bear ") + ("Pennant" if is_pennant else "Flag"), "detected": True, "direction": "Bullish" if pol == 1 else "Bearish", "confidence": conf, "quality": quality, "breakout_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["continuation_breakout"] + (conf * 0.25), 0.0, 100.0), "failure_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["failure"] - (conf * 0.1), 0.0, 100.0), "entry_price": entry, "stop_loss": sl, "target_projection": target, "risk_reward_profile": self._calc_rr(entry, sl, target), "institutional_explanation": "Strong impulse move followed by algorithmic volume dry-up.", "evidence": evidence}
-
-    def _analyze_cup_handle(self, l1: Dict[str, Any]) -> PatternDetailResult:
-        if not (l1.get('cup_detected', 0.0) > 0.0 or l1.get('rounding_top_detected', 0.0) > 0.0 or l1.get('rounding_bottom_detected', 0.0) > 0.0): return self._empty_pattern("Rounding/Cup", "CUP_HANDLE")
-        is_handle, is_rnd_top = l1.get('handle_detected', 0.0) > 0.0, l1.get('rounding_top_detected', 0.0) > 0.0
-        pol = -1 if is_rnd_top else 1
-        evidence = [{"category": "Accumulation_Distribution", "type": "Absorption_Curve", "weight": 35.0, "polarity": pol, "reliability": 0.88, "institutional_explanation": "Wyckoffian phase; slow transition of supply/demand structure."}]
-        conf, quality, _ = self._calculate_confidence(l1, evidence)
-        entry, sl, target = l1['close'], self._calc_structure_sl(l1, l1['close'], pol, l1.get('neckline', 0.0)), l1['close'] + (l1['atr'] * PATTERN_CONFIG["multipliers"]["target"]["cup_handle"] * pol)
-        return {"pattern_id": "ROUNDING_TOP" if is_rnd_top else ("CUP_HANDLE" if is_handle else "ROUNDING_BOTTOM"), "pattern_name": "Rounding Top" if is_rnd_top else ("Cup and Handle" if is_handle else "Rounding Bottom"), "detected": True, "direction": "Bearish" if is_rnd_top else "Bullish", "confidence": conf, "quality": quality, "breakout_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["continuation_breakout"] + (conf * 0.2), 0.0, 100.0), "failure_probability": np.clip(PATTERN_CONFIG["base_probabilities"]["failure"] - 10.0, 0.0, 100.0), "entry_price": entry, "stop_loss": sl, "target_projection": target, "risk_reward_profile": self._calc_rr(entry, sl, target), "institutional_explanation": "Long-term institutional absorption.", "evidence": evidence}
-
-    def _compute_advanced_metrics(self, l1: Dict[str, Any], patterns: List[PatternDetailResult]) -> AdvancedPatternMetrics:
-        active = [p for p in patterns if p["detected"]]
-        max_conf, max_qual = max([p["confidence"] for p in active]) if active else 0.0, max([p["quality"] for p in active]) if active else 0.0
-        vol_score = np.clip(l1.get('volume_confirmation', 1.0) * 33.3, 0.0, 100.0)
-        sys_conf = np.clip((max_conf * 0.4) + (l1.get('pattern_confidence', max_qual) * 0.3) + (vol_score * 0.3), 0.0, 100.0)
-        return {"primary_pattern_id": active[0]["pattern_id"] if active else "NONE", "pattern_quality_index": round(max_qual, 2), "structural_integrity": round(l1.get('pattern_confidence', max_qual), 2), "breakout_readiness": round(max_conf, 2), "false_breakout_probability": round(self._calc_false_breakout(l1, active[0]["pattern_id"] if active else "NONE", max_qual, vol_score) if active else 50.0, 2), "pattern_completion_pct": round(min(max_conf * 1.2, 100.0), 2), "pattern_maturity": "Breakout Imminent" if max_conf > 80 else ("Developing" if max_conf > 50 else "Forming"), "volume_confirmation_score": round(vol_score, 2), "institutional_conviction": round(np.clip((max_qual * 0.4) + (vol_score * 0.4) + (PATTERN_CONFIG["regime_weights"].get(str(l1.get('market_regime', 'Neutral')), 5.0) * 2.0), 0.0, 100.0), 2), "pattern_reliability": round(sys_conf * 0.9, 2), "market_context_score": round(l1.get('trend_strength', 50.0), 2), "system_confidence": round(sys_conf, 2), "pattern_conflict_score": 0.0, "pattern_consensus_score": 100.0}
-
-    def _get_priority(self, p_id: str) -> int: return PATTERN_CONFIG["priority"].get(p_id, 99)
-
-    def analyze(self, df: pd.DataFrame) -> PatternAnalysisResult:
-        l1_data = self._validate_and_extract(df)
-        all_detected = [p for p in [self._analyze_triangles(l1_data), self._analyze_flags(l1_data), self._analyze_cup_handle(l1_data)] if p["detected"]]
-        all_detected.sort(key=lambda x: (self._get_priority(x["pattern_id"]), -x["confidence"]))
+        base_confidence = (0.50 * _clip(score / 120.0, 0.0, 1.0)) + (0.25 * completeness) + (0.25 * evidence_quality)
+        final_confidence = 100.0 * base_confidence * (1.0 - contradiction_ratio)
         
-        cont, rev = [], []
-        trend = self._get_normalized_trend(l1_data)
-        for p in all_detected:
-            if (1 if p["direction"] == "Bullish" else -1) == trend and trend != 0: cont.append(p)
-            else: rev.append(p)
+        return _clip(final_confidence, 0.0, 100.0)
 
-        return {"continuation_patterns": cont, "reversal_patterns": rev, "triangle_analysis": self._analyze_triangles(l1_data), "channel_analysis": self._empty_pattern("Channel", "CHANNEL"), "rectangle_analysis": self._empty_pattern("Rectangle", "RECTANGLE"), "flag_analysis": self._analyze_flags(l1_data), "wedge_analysis": self._empty_pattern("Wedge", "WEDGE"), "cup_handle_analysis": self._analyze_cup_handle(l1_data), "head_shoulders_analysis": self._empty_pattern("Head Shoulders", "HEAD_SHOULDERS"), "advanced_pattern_metrics": self._compute_advanced_metrics(l1_data, all_detected)}
+    def _evidence(self, category: str, message: str, reliability: float, likelihood_ratio: float) -> Dict[str, Any]:
+        """Strict DB schema generation for L3 outputs."""
+        return {
+            "category": str(category),
+            "message": str(message),
+            "reliability": _safe_float(round(_clip(reliability, 0.0, 1.0), 6)),
+            "likelihood_ratio": _safe_float(round(_clip(likelihood_ratio, MIN_LR, MAX_LR), 6)),
+        }
 
-__all__ = ["PatternAnalyzer", "PatternAnalysisResult", "PatternDetailResult", "AdvancedPatternMetrics", "EvidenceItem"]
+    def _unique_evidence(self, evidence: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        seen = set()
+        for item in evidence:
+            key = (item.get("category"), item.get("message"))
+            if key in seen: continue
+            seen.add(key)
+            result.append(item)
+        return result
+
+def analyze(data: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    return PatternAnalyzer().analyze(data, *args, **kwargs)
+
+__all__ = ["PatternAnalyzer", "analyze"]

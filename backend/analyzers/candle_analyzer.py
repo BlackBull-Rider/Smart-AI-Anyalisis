@@ -1,379 +1,385 @@
+from __future__ import annotations
+
 import logging
+import math
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-import numpy as np
-import pandas as pd
-
-from typing import Dict, List, TypedDict, Optional, Any
 logger = logging.getLogger(__name__)
 
-EPSILON = 1e-9
+EPS = 1e-12
+MIN_LR = 0.15
+MAX_LR = 8.0
 
-CANDLE_CONFIG = {
-    "mtf_weights": {
-        "_M": 0.35, "_W": 0.25, "_D": 0.20, "_4H": 0.10, "_1H": 0.05, "_15m": 0.03, "_5m": 0.02
-    },
-    "mtf": {
-        "htf_suffixes": ['_D', '_W', '_M'],
-        "ltf_suffixes": ['_5m', '_15m', '_1H', '_4H']
-    },
-    "bayesian": {
-        "priors": {"reversal": 0.15, "continuation": 0.60, "trap": 0.20},
-        "likelihood_profiles": {
-            "bullish_expansion": {
-                "structural_break_bull": 4.12, "structural_break_bear": 0.31,
-                "liquidity_sweep_bull": 3.45, "liquidity_sweep_bear": 0.42,
-                "momentum_persistence": 2.68, "wyckoff_trap": 0.15
-            },
-            "bearish_expansion": {
-                "structural_break_bull": 0.28, "structural_break_bear": 4.35,
-                "liquidity_sweep_bull": 0.39, "liquidity_sweep_bear": 3.62,
-                "momentum_persistence": 2.81, "wyckoff_trap": 0.12
-            },
-            "mean_reverting": {
-                "structural_break_bull": 1.42, "structural_break_bear": 1.42,
-                "liquidity_sweep_bull": 4.65, "liquidity_sweep_bear": 4.65,
-                "momentum_persistence": 0.88, "wyckoff_trap": 4.52
-            }
-        },
-        "correlation_discount_factor": 0.40 
-    },
-    "thresholds": {
-        "strong_prob": 80.0, "moderate_prob": 50.0, "weak_prob": 20.0,
-        "poor_high_low_ticks": 0.03, "body_expansion_ratio": 0.70
-    },
-    "source_reliability": {
-        "external_confirmed": 1.00,
-        "jit_computed": 0.85,
-        "proxy_derived": 0.50
-    }
-}
+REQUIRED_FEATURES = (
+    "open", "high", "low", "close", "volume", 
+    "body", "body_size", "body_strength", "wick_strength", "upper_wick", "lower_wick", 
+    "bullish_candle", "bearish_candle", "candle_strength", "direction_strength", 
+    "dominance_score", "pressure_score", "clv", 
+    "doji", "dragonfly_doji", "gravestone_doji", 
+    "hammer_shape", "inverted_hammer_shape", "shooting_star_shape", "hanging_man_shape", 
+    "engulfing_body", "marubozu", "bullish_marubozu", "bearish_marubozu", 
+    "gap_up", "gap_down", "gap_percent", "gap_filled", 
+    "rvol_20", "vol_zscore", "volume_ratio", 
+    "smart_money_candle", "liquidity_sweep_candle", "institutional_body", 
+    "absorption_candle", "rejection_candle", "pattern_confidence", "atr_14", "atr"
+)
 
-# ==============================================================================
-# LAYER-2 DATA CONTRACTS
-# ==============================================================================
-class EvidenceItem(TypedDict):
-    category: str; type: str; weight: float; value: str; polarity: int; institutional_explanation: str; reliability: float
+def _num(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", "")
+            if not value: return None
+        value = float(value)
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
-class CandlePsychologyResult(TypedDict):
-    score: float; status: str; emotion: str; auction_balance: str; evidence: List[EvidenceItem]
+def _truth(value: Any) -> Optional[bool]:
+    n = _num(value)
+    if n is not None:
+        if n > 0: return True
+        if n < 0: return False
+        return None
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in {"true", "yes", "y", "bullish", "up", "confirmed"}: return True
+        if value in {"false", "no", "n", "bearish", "down", "rejected"}: return False
+    return None
 
-class BullBearResult(TypedDict):
-    bull_weight_ratio: float; bear_weight_ratio: float; dominance: str; clv_score: float; institutional_control_score: float
+def _clip(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
-class ReversalResult(TypedDict):
-    probability: float; direction: str; quality: str; trap_probability: float; evidence: List[EvidenceItem]
+def _key(value: Any) -> str:
+    return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
-class ContinuationResult(TypedDict):
-    probability: float; quality: str; evidence: List[EvidenceItem]
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    n = _num(value)
+    if n is None or not math.isfinite(n):
+        return default
+    return float(n)
 
-class GapAnalysisResult(TypedDict):
-    gap_type: str; gap_acceptance: bool; gap_fill_probability: float; evidence: List[EvidenceItem]
+def _raw(row: Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        val = row.get(_key(name))
+        if val is not None:
+            return val
+    return None
 
-class MTFResult(TypedDict):
-    alignment_score: float; htf_dominant_bias: str; ltf_trigger_state: str; structural_alignment: str; conflict_score: float; timeframes: Dict[str, Dict[str, str]]
+def _value(row: Mapping[str, Any], *names: str) -> Optional[float]:
+    return _num(_raw(row, *names))
 
-class AdvancedCandleMetrics(TypedDict):
-    candle_quality_index: float; psychology_index: float; rejection_index: float; acceptance_index: float; smart_money_conviction: float; institutional_conviction: float; retail_emotion: str; trap_index: float; auction_balance: float; price_acceptance_score: float; price_rejection_score: float; market_quality_score: float; conviction_decay: float; price_discovery_index: float; liquidity_utilization: float; system_confidence: float
+def _lr(weight: float) -> float:
+    return _clip(math.exp(_clip(weight, -1.9, 2.08)), MIN_LR, MAX_LR)
 
-class CandleAnalysisResult(TypedDict):
-    candle_psychology: CandlePsychologyResult; bull_bear_analysis: BullBearResult; reversal_detection: ReversalResult; continuation_detection: ContinuationResult; gap_analysis: GapAnalysisResult; multi_timeframe: MTFResult; advanced_metrics: AdvancedCandleMetrics
-
- # ============================================================================>
-    # PERFECT CONTRACT: শুধু DataFrame-এর কলামগুলোর নাম থাকবে
-    # OHLCV (open, high, low, close, volume) বাই-ডিফল্ট MO ট্র্যাক করে, তাই ওগুলো দিইন>
-    # ============================================================================>
 
 class CandleAnalyzer:
-    EXPECTED_SCHEMA = [
-        "atr", "clv", "bos", "choch", "trend_direction",
-        "efficiency_ratio", "normalized_volatility", "liquidity_sweep", 
-        "bull_sequence", "bear_sequence", "gap_up", "gap_down", 
-        "volume_ratio", "body_pct", "upper_wick", "lower_wick"
-    ]
-    
-    CRITICAL_FEATURES = ["close", "open", "high", "low", "atr", "clv", "bos", "choch", "trend_direction"]
-    OPTIONAL_FEATURES = ["volume", "efficiency_ratio", "normalized_volatility", "liquidity_sweep", "bull_sequence", "bear_sequence", "gap_up", "gap_down", "volume_ratio", "body_pct", "upper_wick", "lower_wick"]
+    """
+    Institution Grade Candle Analyzer.
+    Analyzes candle structure, auction balance, and quality using O(1) flattened L3 payloads.
+    """
 
-    def __init__(self, config: Optional[Dict] = None):
-        self.config = config or {}
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def _get_latest_values(self, df: Any) -> Dict[str, Any]:
-        """ Strict parameter validation mapping preventing production silent failures """
-        res = {}
-        for feat in self.CRITICAL_FEATURES:
-            if feat not in df.columns or pd.isna(df[feat].iloc[-1]):
-                df['bos'] = 0
-            res[feat] = df[feat].iloc[-1]
+    def analyze(self, data: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        try:
+            rows = self._rows(data)
+            if not rows: return self._empty()
+
+            current = self._get_valid_row(rows)
+            if current is None:
+                result = self._empty()
+                result["candle_analyzer"]["evidence"].append(
+                    self._evidence("Candle", "No valid candle data (OHLC) available in the payload.", 0.99, 0.35)
+                )
+                return result
+
+            # OHLC derivation
+            o = _value(current, "open") or 0.0
+            h = _value(current, "high") or 0.0
+            l = _value(current, "low") or 0.0
+            c = _value(current, "close", "cmp", "price", "last_price") or 0.0
+
+            if c <= 0 or h < l:
+                result = self._empty()
+                result["candle_analyzer"]["evidence"].append(
+                    self._evidence("Candle", "Invalid or malformed OHLC parameters in payload.", 0.99, 0.35)
+                )
+                return result
+
+            c_range = max(h - l, EPS)
+            body = abs(c - o)
+            upper_wick = h - max(o, c)
+            lower_wick = min(o, c) - l
+
+            body_ratio = body / c_range
+            u_wick_ratio = upper_wick / c_range
+            l_wick_ratio = lower_wick / c_range
+            clv = ((c - l) - (h - c)) / c_range if c_range > EPS else 0.0
+
+            # Provided vs Derived
+            bullish_flag = _value(current, "bullish_candle")
+            bearish_flag = _value(current, "bearish_candle")
             
-        for feat in self.OPTIONAL_FEATURES:
-            res[feat] = df[feat].iloc[-1] if (feat in df.columns and pd.notna(df[feat].iloc[-1])) else 0.0
-        return res
+            is_bullish = bullish_flag == 1.0 if bullish_flag is not None else (c > o)
+            is_bearish = bearish_flag == 1.0 if bearish_flag is not None else (c < o)
 
-    def _execute_bayesian_fusion(self, base_prior: float, events: List[str], regime: str, is_bullish: bool) -> float:
-        """ Sequential Bayesian evidence integration over network state profiles """
-        prob = np.clip(base_prior, 0.001, 0.999)
-        profile = CANDLE_CONFIG["bayesian"]["likelihood_profiles"].get(regime, CANDLE_CONFIG["bayesian"]["likelihood_profiles"]["mean_reverting"])
-        discount = CANDLE_CONFIG["bayesian"]["correlation_discount_factor"]
-        
-        fired_nodes: Set[str] = set()
-        
-        for event in events:
-            mapped_node = f"{event}_bull" if (is_bullish and f"{event}_bull" in profile) else f"{event}_bear" if (not is_bullish and f"{event}_bear" in profile) else event
-            lr = profile.get(mapped_node, 1.5)
-            
-            # Apply network interaction factor if context paths intersect
-            if len(fired_nodes) > 0:
-                lr = 1.0 + (lr - 1.0) * discount
+            # Directional Scoring
+            dir_score = clv * 0.4
+            if is_bullish: dir_score += 0.3
+            if is_bearish: dir_score -= 0.3
+
+            dir_str = _value(current, "direction_strength")
+            if dir_str is not None:
+                dir_score += _clip(dir_str, -1.0, 1.0) * 0.3
                 
-            prior_odds = prob / (1.0 - prob + EPSILON)
-            posterior_odds = prior_odds * lr
-            prob = posterior_odds / (1.0 + posterior_odds + EPSILON)
-            fired_nodes.add(mapped_node)
+            dir_score = _clip(dir_score, -1.0, 1.0)
+
+            # Auction Balance Status & Magnitude
+            if dir_score >= 0.25:
+                auction_balance_status = "bullish"
+            elif dir_score <= -0.25:
+                auction_balance_status = "bearish"
+            else:
+                auction_balance_status = "neutral"
+
+            auction_balance = _clip(abs(dir_score) * 100.0, 0.0, 100.0)
+
+            # Quality Scoring
+            quality_score = body_ratio * 40.0
             
-        return float(np.clip(prob, 0.001, 0.999))
+            atr = _value(current, "atr_14", "atr")
+            if atr and atr > 0:
+                range_to_atr = _clip(c_range / atr, 0.0, 3.0)
+                quality_score += (range_to_atr / 2.0) * 30.0
+            else:
+                quality_score += 15.0
 
-    def analyze(self, df: Any) -> CandleAnalysisResult:
-        v = self._get_latest_values(df)
-        
-        eff_ratio = float(v['efficiency_ratio'])
-        norm_vol = float(v['normalized_volatility'])
-        trend_dir = int(v['trend_direction'])
-        
-        if eff_ratio > 0.55 and norm_vol > 0.05:
-            regime = "bullish_expansion" if trend_dir >= 0 else "bearish_expansion"
-        else:
-            regime = "mean_reverting"
+            rvol = _value(current, "rvol_20", "volume_ratio")
+            zscore = _value(current, "vol_zscore")
+            if rvol and rvol > 1.0:
+                vol_boost = _clip((rvol - 1.0) * 10.0, 0.0, 20.0)
+                quality_score += vol_boost
             
-        mqs = min(max((eff_ratio * 60.0) + (norm_vol * 100), 0.0), 100.0)
-        
-        # 1. Pipeline Execution Sub-components
-        mtf_res = self._process_mtf(df)
-        psy_res = self._process_psychology(v, mqs)
-        bb_res = self._process_bull_bear(v, psy_res)
-        rev_res = self._process_reversal(v, regime, mqs)
-        cont_res = self._process_continuation(v, regime, mqs)
-        gap_res = self._process_gaps(v, mqs)
-        
-        # 2. Dynamic Structural Confidence Framework
-        evidence = psy_res['evidence'] + rev_res['evidence']
-        bull_w = sum(e['weight'] * e['reliability'] for e in evidence if e['polarity'] > 0)
-        bear_w = sum(e['weight'] * e['reliability'] for e in evidence if e['polarity'] < 0)
-        total_w = bull_w + bear_w + EPSILON
-        
-        agreement_ratio = max(bull_w, bear_w) / total_w
-        conflict_score = (min(bull_w, bear_w) / total_w) * 100.0
-        
-        # Parse missing structural fields rate
-        missing_count = sum(1 for feat in self.OPTIONAL_FEATURES if v[feat] == 0.0)
-        missing_penalty = (missing_count / len(self.OPTIONAL_FEATURES)) * 30.0
-        
-        mtf_sync = 1.0 - (mtf_res['conflict_score'] / 200.0)
-        system_confidence = min(max((agreement_ratio * 100.0 * mtf_sync) - missing_penalty, 0.0), 100.0)
-        
-        adv_metrics = self._compile_metrics(v, psy_res, bb_res, rev_res, cont_res, gap_res, mqs, eff_ratio, system_confidence, conflict_score)
-        
-        return {
-            "candle_psychology": psy_res, "bull_bear_analysis": bb_res, "reversal_detection": rev_res,
-            "continuation_detection": cont_res, "gap_analysis": gap_res, "multi_timeframe": mtf_res, "advanced_metrics": adv_metrics
-        }
-
-    def _process_psychology(self, v: Dict[str, Any], mqs: float) -> CandlePsychologyResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        
-        vol_ratio = float(v['volume_ratio'])
-        body_pct = float(v['body_pct'])
-        liq_sweep = int(v['liquidity_sweep'])
-        trend_dir = int(v['trend_direction'])
-        
-        if liq_sweep == 1:
-            evidence.append({"category": "wyckoff", "type": "Wyckoff_Spring", "weight": 35.0, "value": "Spring Grab", "polarity": 1, "institutional_explanation": "Liquidity swept low.", "reliability": 0.85})
-            score += 35.0
-        elif liq_sweep == -1:
-            evidence.append({"category": "wyckoff", "type": "Wyckoff_Upthrust", "weight": 35.0, "value": "Upthrust Grab", "polarity": -1, "institutional_explanation": "Liquidity swept high.", "reliability": 0.85})
-            score -= 35.0
-            
-        if body_pct > CANDLE_CONFIG["thresholds"]["body_expansion_ratio"] and vol_ratio > 1.2:
-            polarity = 1 if v['close'] > v['open'] else -1
-            evidence.append({"category": "auction", "type": "Auction_Expansion", "weight": 20.0, "value": "Expansion", "polarity": polarity, "institutional_explanation": "Volume breakout expansion.", "reliability": 1.0})
-            score += (20.0 * polarity)
-            
-        if vol_ratio > 1.5 and body_pct < 0.3:
-            evidence.append({"category": "psychology", "type": "Effort_Vs_Result", "weight": 25.0, "value": "Absorption", "polarity": -trend_dir if trend_dir != 0 else 0, "institutional_explanation": "Limit barrier absorption.", "reliability": 1.0})
-            score += (-25.0 * trend_dir)
-
-        return {
-            "score": round(min(max(score, -100.0), 100.0), 2),
-            "status": "Institutional Absorption" if abs(score) > 25 and body_pct < 0.4 else "Trend Expansion" if abs(score) > 20 else "Equilibrium",
-            "emotion": "Panic/Trap" if liq_sweep != 0 else "Indecision",
-            "auction_balance": "Imbalanced State" if abs(score) > 25 else "Symmetrical Balance",
-            "evidence": evidence
-        }
-
-    def _process_bull_bear(self, v: Dict[str, Any], psy: CandlePsychologyResult) -> BullBearResult:
-        clv = float(v['clv'])
-        bull_seq = int(v['bull_sequence'])
-        bear_seq = int(v['bear_sequence'])
-        
-        base_bull = (clv + 1.0) * 50.0
-        if bull_seq >= 3: base_bull += (bull_seq * 5.0)
-        if bear_seq >= 3: base_bull -= (bear_seq * 5.0)
-        
-        final_bull_w = min(max(base_bull, 0.0), 100.0)
-        final_bear_w = 100.0 - final_bull_w
-        
-        return {
-            "bull_weight_ratio": round(final_bull_w / 100.0, 4),
-            "bear_weight_ratio": round(final_bear_w / 100.0, 4),
-            "dominance": "Bullish Auction Control" if final_bull_w > 60.0 else "Bearish Auction Control" if final_bear_w > 60.0 else "Auction Rotation Equilibrium",
-            "clv_score": round(clv, 4), "institutional_control_score": round(abs(clv) * 100.0, 2)
-        }
-
-    def _process_reversal(self, v: Dict[str, Any], regime: str, mqs: float) -> ReversalResult:
-        evidence: List[EvidenceItem] = []
-        active_events: List[str] = []
-        
-        choch = int(v['choch'])
-        liq_sweep = int(v['liquidity_sweep'])
-        is_bullish = True if (choch > 0 or liq_sweep > 0 or float(v['clv']) > 0) else False
-        
-        if choch != 0:
-            active_events.append("structural_break")
-            evidence.append({"category": "structural", "type": "CHoCH", "weight": 40.0, "value": "Protected Break", "polarity": choch, "institutional_explanation": "Market Character Reversal.", "reliability": 1.0})
-        if liq_sweep != 0:
-            active_events.append("liquidity_sweep")
-            evidence.append({"category": "liquidity", "type": "Sweep", "weight": 35.0, "value": "Stop Hunting", "polarity": liq_sweep, "institutional_explanation": "Capital deployment injection.", "reliability": 0.85})
-            
-        prob = self._execute_bayesian_fusion(CANDLE_CONFIG["bayesian"]["priors"]["reversal"], active_events, regime, is_bullish)
-        
-        return {
-            "probability": round(prob * 100.0, 2),
-            "direction": "Bullish" if (choch > 0 or liq_sweep > 0) else "Bearish" if (choch < 0 or liq_sweep < 0) else "None",
-            "quality": "Confirmed Structural Reversal Zone" if prob > 0.65 else "Trend Profile Intact",
-            "trap_probability": round(prob * 1.5 * 100.0, 2) if "liquidity_sweep" in active_events else 15.0,
-            "evidence": evidence
-        }
-
-    def _process_continuation(self, v: Dict[str, Any], regime: str, mqs: float) -> ContinuationResult:
-        active_events: List[str] = []
-        bos = int(v['bos'])
-        trend_dir = int(v['trend_direction'])
-        is_bullish = trend_dir >= 0
-        
-        if bos != 0 and bos == trend_dir:
-            active_events.append("structural_break")
-        if abs(float(v['clv'])) > 0.4:
-            active_events.append("momentum_persistence")
-            
-        prob = self._execute_bayesian_fusion(CANDLE_CONFIG["bayesian"]["priors"]["continuation"], active_events, regime, is_bullish)
-        
-        return {
-            "probability": round(prob * 100.0, 2),
-            "quality": "Institutional Orderflow Expansion" if prob > 0.70 else "Mean Reverting Compression",
-            "evidence": []
-        }
-
-    def _process_gaps(self, v: Dict[str, Any], mqs: float) -> GapAnalysisResult:
-        evidence: List[EvidenceItem] = []
-        gap_up = int(v['gap_up'])
-        gap_down = int(v['gap_down'])
-        
-        if not gap_up and not gap_down:
-            return {"gap_type": "None", "gap_acceptance": False, "gap_fill_probability": 0.0, "evidence": []}
-            
-        # Dynamically scale gap filling probability from asset volatility matrix variables
-        atr = float(v['atr'])
-        vol_ratio = float(v['volume_ratio'])
-        body_pct = float(v['body_pct'])
-        
-        acceptance = (gap_up and body_pct > 0.5) or (gap_down and body_pct > 0.5)
-        
-        # Mathematical derivation eliminating rigid constants
-        fill_prob = 100.0 - min(max((vol_ratio * 30.0) + (body_pct * 40.0), 10.0), 95.0) if acceptance else min(max(85.0 - (vol_ratio * 20.0), 20.0), 95.0)
-        
-        return {
-            "gap_type": "Sovereign Breakaway Gap" if (vol_ratio > 1.5 and acceptance) else "Common Auction Variance",
-            "gap_acceptance": acceptance,
-            "gap_fill_probability": round(fill_prob, 2),
-            "evidence": evidence
-        }
-
-    def _process_mtf(self, df: Any) -> MTFResult:
-        """ Dynamic multi-timeframe vector matrix execution looping over HTF and LTF branches """
-        total_weight = 0.0
-        weighted_bias_sum = 0.0
-        conflict_accumulator = 0.0
-        
-        timeframes = {}
-        
-        # Run across complete systemic spectrum matching config parameters
-        all_suffixes = CANDLE_CONFIG["mtf"]["htf_suffixes"] + CANDLE_CONFIG["mtf"]["ltf_suffixes"]
-        
-        for sfx in all_suffixes:
-            c_col, o_col = f"close{sfx}", f"open{sfx}"
-            if c_col in df.columns and o_col in df.columns:
-                c_val, o_val = df[c_col].iloc[-1], df[o_col].iloc[-1]
-                if pd.isna(c_val) or pd.isna(o_val): continue
+            if _value(current, "institutional_body") == 1.0 or _value(current, "smart_money_candle") == 1.0:
+                quality_score += 10.0
                 
-                direction = 1 if c_val > o_val else -1 if c_val < o_val else 0
-                weight = CANDLE_CONFIG["mtf_weights"].get(sfx, 0.02)
-                
-                weighted_bias_sum += (direction * weight)
-                total_weight += weight
-                
-                timeframes[sfx.strip('_')] = {
-                    "bias": "Bullish" if direction == 1 else "Bearish" if direction == -1 else "Neutral"
+            candle_quality = _clip(quality_score, 0.0, 100.0)
+            
+            if candle_quality > 40.0:
+                candle_quality_status = auction_balance_status
+            else:
+                candle_quality_status = "neutral"
+
+            # Evidence Engine
+            evidence = self._evidence_engine(
+                current, c_range, body_ratio, u_wick_ratio, l_wick_ratio, clv, 
+                auction_balance_status, candle_quality, rvol, zscore
+            )
+
+            # Confidence Engine
+            confidence = self._calculate_confidence(
+                current, auction_balance, candle_quality, auction_balance_status, 
+                u_wick_ratio, l_wick_ratio, rvol, evidence
+            )
+
+            return {
+                "candle_analyzer": {
+                    "confidence": _safe_float(round(confidence, 4)),
+                    "candle_quality": _safe_float(round(candle_quality, 4)),
+                    "candle_quality_status": candle_quality_status,
+                    "auction_balance": _safe_float(round(auction_balance, 4)),
+                    "auction_balance_status": auction_balance_status,
+                    "evidence": evidence
                 }
+            }
 
-        normalized_alignment = (weighted_bias_sum / (total_weight + EPSILON)) * 100.0
-        
-        # Extract HTF vs LTF Friction index vectors
-        htf_vector, ltf_vector = 0.0, 0.0
-        for sfx in CANDLE_CONFIG["mtf"]["htf_suffixes"]:
-            if f"close{sfx}" in df.columns: htf_vector += 1.0 if df[f"close{sfx}"].iloc[-1] > df[f"open{sfx}"].iloc[-1] else -1.0
-        for sfx in CANDLE_CONFIG["mtf"]["ltf_suffixes"]:
-            if f"close{sfx}" in df.columns: ltf_vector += 1.0 if df[f"close{sfx}"].iloc[-1] > df[f"open{sfx}"].iloc[-1] else -1.0
+        except (ValueError, TypeError, KeyError, IndexError, ZeroDivisionError, ArithmeticError) as e:
+            self.logger.error(f"Candle Analyzer Math/Format Error: {e}")
+            result = self._empty()
+            result["candle_analyzer"]["evidence"].append(self._evidence("Candle", "Data format or math failure in processing.", 0.96, 0.42))
+            return result
+        except Exception as e:
+            self.logger.exception(f"Candle Analyzer Critical Failure: {e}")
+            result = self._empty()
+            result["candle_analyzer"]["evidence"].append(self._evidence("Candle", "Execution encountered a critical failure.", 0.96, 0.42))
+            return result
+
+    def _empty(self) -> Dict[str, Any]:
+        return {
+            "candle_analyzer": {
+                "confidence": 0.0,
+                "candle_quality": 0.0,
+                "candle_quality_status": "neutral",
+                "auction_balance": 0.0,
+                "auction_balance_status": "neutral",
+                "evidence": []
+            }
+        }
+
+    def _flatten_db_payload(self, data: Any) -> Dict[str, Any]:
+        flat = {}
+        if not isinstance(data, dict): return flat
+        for k, v in data.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    flat[_key(sub_k)] = sub_v
+            else:
+                flat[_key(k)] = v
+        return flat
+
+    def _rows(self, data: Any) -> List[Mapping[str, Any]]:
+        raw_rows = []
+        if data is None: return []
+
+        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+            try: raw_rows = data.to_dict(orient="records")
+            except Exception: return []
+        elif isinstance(data, Mapping):
+            found_nested = False
+            for name in ("features", "data", "payload", "rows", "historical_data"):
+                nested = data.get(name)
+                if isinstance(nested, list):
+                    raw_rows = nested
+                    found_nested = True
+                    break
+            if not found_nested: raw_rows = [self._flatten_db_payload(data)]
+        elif isinstance(data, Sequence) and not isinstance(data, (str, bytes, bytearray)):
+            raw_rows = [self._flatten_db_payload(item) if isinstance(item, dict) else item for item in data if isinstance(item, Mapping)]
+
+        normalized_rows = []
+        for row in raw_rows:
+            normalized = {}
+            for k, v in row.items(): normalized[_key(k)] = v
+            normalized_rows.append(normalized)
             
-        conflict_score = abs(htf_vector - ltf_vector) * 25.0
+        return normalized_rows
+
+    def _get_valid_row(self, rows: List[Mapping[str, Any]]) -> Optional[Mapping[str, Any]]:
+        for i in range(len(rows) - 1, -1, -1):
+            c = _value(rows[i], "close", "cmp", "price", "last_price")
+            if c is not None and c > 0:
+                return rows[i]
+        return None
+
+    def _evidence_engine(
+        self, current: Mapping[str, Any], c_range: float, body_ratio: float, 
+        u_wick_ratio: float, l_wick_ratio: float, clv: float, 
+        auction_status: str, quality: float, rvol: Optional[float], zscore: Optional[float]
+    ) -> List[Dict[str, Any]]:
+        evidence: List[Dict[str, Any]] = []
+
+        # Structural Evidence
+        if body_ratio >= 0.7:
+            msg = f"Large real body ({body_ratio*100:.1f}% of range) indicates committed directional participation."
+            evidence.append(self._evidence("Candle", msg, 0.85, 2.2))
+        elif body_ratio <= 0.2:
+            msg = f"Small real body ({body_ratio*100:.1f}% of range) reflects market equilibrium or indecision."
+            evidence.append(self._evidence("Candle", msg, 0.80, 0.8))
+
+        # Wick Evidence
+        if u_wick_ratio >= 0.5:
+            msg = f"Significant upper wick ({u_wick_ratio*100:.1f}% of range) shows strong seller rejection at higher prices."
+            evidence.append(self._evidence("Candle", msg, 0.88, 1.8 if auction_status != "bullish" else 0.6))
+        if l_wick_ratio >= 0.5:
+            msg = f"Significant lower wick ({l_wick_ratio*100:.1f}% of range) shows strong buyer rejection at lower prices."
+            evidence.append(self._evidence("Candle", msg, 0.88, 1.8 if auction_status != "bearish" else 0.6))
+
+        # Close Location (CLV)
+        if clv >= 0.7:
+            evidence.append(self._evidence("Candle", "Close near the absolute high of the candle, confirming strong buyer-side auction control.", 0.85, 2.1))
+        elif clv <= -0.7:
+            evidence.append(self._evidence("Candle", "Close near the absolute low of the candle, confirming strong seller-side auction control.", 0.85, 2.1))
+
+        # Precomputed Patterns
+        for pat, desc in [
+            ("doji", "Doji"), ("hammer_shape", "Hammer"), ("shooting_star_shape", "Shooting Star"),
+            ("engulfing_body", "Engulfing"), ("marubozu", "Marubozu")
+        ]:
+            if _value(current, pat) == 1.0:
+                evidence.append(self._evidence("Candle", f"Structure matches classical {desc} characteristics.", 0.82, 1.5))
+
+        # Institutional Context
+        if _value(current, "liquidity_sweep_candle") == 1.0:
+            evidence.append(self._evidence("Candle", "Candle structural footprint implies a liquidity sweep of recent extremes.", 0.90, 2.5))
+        if _value(current, "smart_money_candle") == 1.0 or _value(current, "institutional_body") == 1.0:
+            evidence.append(self._evidence("Candle", "Candle proportions and placement validate institutional-level participation.", 0.88, 2.0))
+        if _value(current, "absorption_candle") == 1.0:
+            evidence.append(self._evidence("Candle", "Price action suggests absorption of opposing aggressive order flow.", 0.85, 1.8))
+
+        # Volume Confirmation
+        if rvol is not None:
+            if rvol > 1.5:
+                evidence.append(self._evidence("Candle", f"Relative volume expansion ({rvol:.2f}x) validates the structural context.", 0.87, 2.3))
+            elif rvol < 0.6:
+                evidence.append(self._evidence("Candle", f"Low relative volume ({rvol:.2f}x) highlights a lack of broad market participation.", 0.80, 0.6))
         
+        if zscore is not None and zscore >= 2.0:
+            evidence.append(self._evidence("Candle", f"Extreme volume anomaly (Z-Score {zscore:.2f}) signifies a major institutional footprint.", 0.92, 3.0))
+
+        # Gap Context
+        if _value(current, "gap_up") == 1.0:
+            gap_pct = _value(current, "gap_percent") or 0.0
+            evidence.append(self._evidence("Candle", f"Candle opened with an upward gap ({gap_pct:.2f}%), indicating aggressive pre-market buying.", 0.82, 1.6))
+        elif _value(current, "gap_down") == 1.0:
+            gap_pct = _value(current, "gap_percent") or 0.0
+            evidence.append(self._evidence("Candle", f"Candle opened with a downward gap ({abs(gap_pct):.2f}%), indicating aggressive pre-market selling.", 0.82, 1.6))
+
+        return self._unique_evidence(evidence)
+
+    def _calculate_confidence(
+        self, current: Mapping[str, Any], balance: float, quality: float, status: str, 
+        u_wick: float, l_wick: float, rvol: Optional[float], evidence: Sequence[Mapping[str, Any]]
+    ) -> float:
+        # Base confidence from quality metrics
+        base_conf = (quality * 0.5) + (balance * 0.3) + 20.0
+
+        # Feature coverage tracking
+        found_features = sum(1 for name in REQUIRED_FEATURES if _raw(current, name) is not None)
+        coverage_ratio = found_features / max(len(REQUIRED_FEATURES), 1)
+        base_conf *= (0.5 + 0.5 * coverage_ratio)
+
+        # Contradiction Penalties
+        penalty = 0.0
+        if status == "bullish" and u_wick > 0.4:
+            penalty += 15.0 # Bullish but massive top rejection
+        if status == "bearish" and l_wick > 0.4:
+            penalty += 15.0 # Bearish but massive bottom rejection
+        if rvol is not None and rvol < 0.5 and quality > 50.0:
+            penalty += 10.0 # High quality but no volume support
+
+        # Evidence quality processing
+        contradictions = sum(1 for item in evidence if ((_num(item.get("likelihood_ratio")) or 1.0) < 0.85))
+        penalty += (contradictions * 5.0)
+
+        confidence = _clip(base_conf - penalty, 0.0, 100.0)
+        return confidence
+
+    def _evidence(self, category: str, message: str, reliability: float, likelihood_ratio: float) -> Dict[str, Any]:
         return {
-            "alignment_score": round(normalized_alignment, 2),
-            "htf_dominant_bias": "Macro Long" if normalized_alignment > 35.0 else "Macro Short" if normalized_alignment < -35.0 else "Rotational Balance",
-            "ltf_trigger_state": "Trigger Sync Bull" if ltf_vector > 1.0 else "Trigger Sync Bear" if ltf_vector < -1.0 else "Friction Compression",
-            "structural_alignment": "Consensus Structural Matrix" if conflict_score < 30.0 else "Timeframe Fragmentation Node",
-            "conflict_score": round(conflict_score, 2),
-            "timeframes": timeframes
+            "category": str(category),
+            "message": str(message),
+            "reliability": _safe_float(round(_clip(reliability, 0.0, 1.0), 6)),
+            "likelihood_ratio": _safe_float(round(_clip(likelihood_ratio, MIN_LR, MAX_LR), 6)),
         }
 
-    def _compile_metrics(self, v: Dict[str, Any], psy: CandlePsychologyResult, bb: BullBearResult, rev: ReversalResult, cont: ContinuationResult, gap: GapAnalysisResult, mqs: float, eff_ratio: float, system_confidence: float, conflict_score: float) -> AdvancedCandleMetrics:
-        """ Derives internal indexes without magic thresholds or score-forcing constants """
-        cqi = abs(psy['score'])
-        rej_idx = sum(e['weight'] for e in psy['evidence'] if e['polarity'] != np.sign(psy['score']))
-        acc_idx = sum(e['weight'] for e in psy['evidence'] if e['polarity'] == np.sign(psy['score']))
+    def _unique_evidence(self, evidence: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        seen = set()
+        for item in evidence:
+            key = (item.get("category"), item.get("message"))
+            if key in seen: continue
+            seen.add(key)
+            result.append(item)
         
-        vol_ratio = float(v['volume_ratio'])
-        wick_total = float(v['upper_wick']) + float(v['lower_wick'])
-        c_range = (v['high'] - v['low']) + EPSILON
-        
-        p_acc = (acc_idx / (acc_idx + rej_idx + EPSILON)) * 100.0
-        p_rej = 100.0 - p_acc
-        
-        liq_util = min((wick_total / c_range) * min(vol_ratio, 3.0) * 100.0 / 3.0, 100.0)
-        p_disc = min(eff_ratio * vol_ratio * 50.0, 100.0)
-        
-        # Calculate dynamic momentum decay from expansion imbalance delta vectors
-        conviction_decay = max(100.0 - (eff_ratio * 100.0), 0.0) if vol_ratio > 1.0 else 50.0
-        
-        return {
-            "candle_quality_index": round(cqi, 2), "psychology_index": round(psy['score'], 2),
-            "rejection_index": round(rej_idx, 2), "acceptance_index": round(acc_idx, 2),
-            "smart_money_conviction": round(float(v['clv']) * (cont['probability'] / 100.0), 4),
-            "institutional_conviction": round(abs(float(v['clv'])), 4), "retail_emotion": psy['emotion'],
-            "trap_index": rev['trap_probability'], "auction_balance": 100.0 - conflict_score,
-            "price_acceptance_score": round(p_acc, 2), "price_rejection_score": round(p_rej, 2),
-            "market_quality_score": round(mqs, 2), "conviction_decay": round(conviction_decay, 2),
-            "price_discovery_index": round(p_disc, 2), "liquidity_utilization": round(liq_util, 2),
-            "system_confidence": round(system_confidence, 2)
-        }
+        # Keep concise: limit to top 8 most meaningful
+        result.sort(key=lambda x: x.get("likelihood_ratio", 1.0), reverse=True)
+        return result[:8]
 
-__all__ = ["CandleAnalyzer", "CandleAnalysisResult"]
+
+def analyze(data: Any, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    return CandleAnalyzer().analyze(data, *args, **kwargs)
+
+__all__ = ["CandleAnalyzer", "analyze"]

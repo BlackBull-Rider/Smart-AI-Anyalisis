@@ -1,582 +1,2173 @@
-import math
+from __future__ import annotations
+
 import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Optional, Tuple
-from collections import defaultdict
+import math
+import re
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# DYNAMIC INSTITUTIONAL CONFIGURATION
-# ==============================================================================
-REGIME_CONFIG = {
-    "scalars": {
-        "bayesian_damping_power": 0.45,
-        "base_prior": 0.5,
-        "hmm_simulations": 5000,
-        "hmm_horizon_days": 20,
-        "amihud_lookback": 20,
-        "student_t_dof": 4.0  # Degrees of freedom for fat-tailed returns
-    },
-    "hmm": {
-        "transition_matrix": np.array([
-            [0.85, 0.05, 0.10],  # Bull to [Bull, Bear, Side]
-            [0.10, 0.75, 0.15],  # Bear to [Bull, Bear, Side]
-            [0.20, 0.20, 0.60]   # Side to [Bull, Bear, Side]
-        ]),
-        # Student-t Parameters: (Mean, Scale/Std)
-        "emissions": {
-            "Bull": (0.001, 0.012),
-            "Bear": (-0.002, 0.025),
-            "Sideways": (0.000, 0.008)
-        }
-    },
-    "weights": {
-        "bull": 0.25, "bear": 0.25, "sideways": 0.20,
-        "volatility": 0.15, "risk": 0.15
-    },
-    "reliabilities": {
-        "trend": 0.95, "momentum": 0.85, "volatility": 0.98,
-        "breadth": 0.92, "macro_risk": 0.90, "liquidity": 0.95
-    },
-    "penalties": {
-        "outlier_z_threshold": 4.0,
-        "outlier_penalty": 15.0,
-        "zero_variance": 20.0
-    }
+MIN_LR = 0.15
+MAX_LR = 8.0
+
+
+# ============================================================================
+# FEATURE CONTRACT
+# ============================================================================
+# Values are normalized only according to an explicit contract.
+# No automatic unit guessing is performed.
+# ============================================================================
+
+FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
+    "close": [
+        ("close", 1.0),
+        ("adj_close", 1.0),
+        ("adjusted_close", 1.0),
+        ("cmp", 1.0),
+        ("price", 1.0),
+        ("last_price", 1.0),
+    ],
+    "open": [
+        ("open", 1.0),
+    ],
+    "high": [
+        ("high", 1.0),
+    ],
+    "low": [
+        ("low", 1.0),
+    ],
+    "volume": [
+        ("volume", 1.0),
+        ("total_volume", 1.0),
+    ],
+    "avg_volume": [
+        ("avg_volume", 1.0),
+        ("average_volume", 1.0),
+        ("volume_average", 1.0),
+        ("volume_avg", 1.0),
+    ],
+    "ema20": [
+        ("ema20", 1.0),
+        ("ema_20", 1.0),
+        ("ema20_value", 1.0),
+    ],
+    "ema50": [
+        ("ema50", 1.0),
+        ("ema_50", 1.0),
+        ("ema50_value", 1.0),
+    ],
+    "ema100": [
+        ("ema100", 1.0),
+        ("ema_100", 1.0),
+        ("ema100_value", 1.0),
+    ],
+    "ema200": [
+        ("ema200", 1.0),
+        ("ema_200", 1.0),
+        ("ema200_value", 1.0),
+    ],
+    "sma20": [
+        ("sma20", 1.0),
+        ("sma_20", 1.0),
+    ],
+    "sma50": [
+        ("sma50", 1.0),
+        ("sma_50", 1.0),
+    ],
+    "sma200": [
+        ("sma200", 1.0),
+        ("sma_200", 1.0),
+    ],
+    "rsi": [
+        ("rsi", 1.0),
+        ("rsi14", 1.0),
+        ("rsi_14", 1.0),
+    ],
+    "macd": [
+        ("macd", 1.0),
+        ("macd_line", 1.0),
+    ],
+    "macd_signal": [
+        ("macd_signal", 1.0),
+        ("macd_signal_line", 1.0),
+        ("signal_line", 1.0),
+    ],
+    "macd_hist": [
+        ("macd_hist", 1.0),
+        ("macd_histogram", 1.0),
+    ],
+    "adx": [
+        ("adx", 1.0),
+        ("adx14", 1.0),
+        ("adx_14", 1.0),
+    ],
+    "atr": [
+        ("atr", 1.0),
+        ("atr14", 1.0),
+        ("atr_14", 1.0),
+    ],
+    "atr_pct": [
+        ("atr_pct", 1.0),
+        ("atr_percent", 1.0),
+        ("atr_percentage", 1.0),
+    ],
+    "volatility": [
+        ("volatility", 1.0),
+        ("historical_volatility", 1.0),
+        ("realized_volatility", 1.0),
+    ],
+    "return_1d": [
+        ("return_1d", 1.0),
+        ("daily_return", 1.0),
+        ("return_daily", 1.0),
+        ("pct_change_1d", 1.0),
+    ],
+    "return_5d": [
+        ("return_5d", 1.0),
+        ("return_5_day", 1.0),
+        ("weekly_return", 1.0),
+        ("pct_change_5d", 1.0),
+    ],
+    "return_20d": [
+        ("return_20d", 1.0),
+        ("return_20_day", 1.0),
+        ("monthly_return", 1.0),
+        ("pct_change_20d", 1.0),
+    ],
+    "return_60d": [
+        ("return_60d", 1.0),
+        ("return_60_day", 1.0),
+        ("quarterly_return", 1.0),
+        ("pct_change_60d", 1.0),
+    ],
+    "advance_decline": [
+        ("advance_decline", 1.0),
+        ("advance_decline_ratio", 1.0),
+        ("ad_ratio", 1.0),
+    ],
+    "breadth": [
+        ("breadth", 1.0),
+        ("market_breadth", 1.0),
+        ("breadth_ratio", 1.0),
+    ],
+    "advancers": [
+        ("advancers", 1.0),
+        ("advancing_stocks", 1.0),
+    ],
+    "decliners": [
+        ("decliners", 1.0),
+        ("declining_stocks", 1.0),
+    ],
+    "new_highs": [
+        ("new_highs", 1.0),
+        ("new_52w_highs", 1.0),
+        ("new_high_count", 1.0),
+    ],
+    "new_lows": [
+        ("new_lows", 1.0),
+        ("new_52w_lows", 1.0),
+        ("new_low_count", 1.0),
+    ],
+    "beta": [
+        ("beta", 1.0),
+        ("market_beta", 1.0),
+    ],
+    "drawdown": [
+        ("drawdown", 1.0),
+        ("max_drawdown", 1.0),
+        ("current_drawdown", 1.0),
+    ],
+    "vix": [
+        ("vix", 1.0),
+        ("india_vix", 1.0),
+        ("market_vix", 1.0),
+    ],
+    "put_call_ratio": [
+        ("put_call_ratio", 1.0),
+        ("pcr", 1.0),
+        ("oi_pcr", 1.0),
+    ],
+    "institutional_flow": [
+        ("institutional_flow", 1.0),
+        ("fii_flow", 1.0),
+        ("fii_net_flow", 1.0),
+        ("dii_flow", 1.0),
+        ("institutional_net_flow", 1.0),
+    ],
+    "market_return": [
+        ("market_return", 1.0),
+        ("index_return", 1.0),
+        ("nifty_return", 1.0),
+    ],
 }
 
-# ==============================================================================
-# SCHEMAS (Strict Interface)
-# ==============================================================================
-class EvidenceItem(TypedDict):
-    category: str; feature: str; weight: float; polarity: int
-    reliability: float; likelihood_ratio: float; explanation: str
 
-class BullMarketResult(TypedDict):
-    bull_probability: float; bull_strength: float; bull_phase: str
-    bull_score: float; institutional_support: float; evidence: List[EvidenceItem]
+DOMAIN_FEATURES: Dict[str, List[str]] = {
+    "trend": [
+        "close",
+        "ema20",
+        "ema50",
+        "ema100",
+        "ema200",
+        "sma20",
+        "sma50",
+        "sma200",
+        "adx",
+        "return_20d",
+        "return_60d",
+    ],
+    "momentum": [
+        "rsi",
+        "macd",
+        "macd_signal",
+        "macd_hist",
+        "return_1d",
+        "return_5d",
+        "return_20d",
+    ],
+    "volatility": [
+        "atr",
+        "atr_pct",
+        "volatility",
+        "vix",
+        "drawdown",
+    ],
+    "participation": [
+        "volume",
+        "avg_volume",
+        "breadth",
+        "advance_decline",
+        "advancers",
+        "decliners",
+        "new_highs",
+        "new_lows",
+        "institutional_flow",
+    ],
+    "risk": [
+        "beta",
+        "drawdown",
+        "vix",
+        "put_call_ratio",
+        "volatility",
+    ],
+}
 
-class BearMarketResult(TypedDict):
-    bear_probability: float; bear_strength: float; bear_phase: str
-    distribution_score: float; selling_pressure: float; evidence: List[EvidenceItem]
 
-class SidewaysMarketResult(TypedDict):
-    range_probability: float; compression_score: float; breakout_probability: float
-    support_quality: float; resistance_quality: float; efficiency_ratio: float
-    hurst_exponent: float; evidence: List[EvidenceItem]
+DATE_ALIASES = (
+    "date",
+    "datetime",
+    "timestamp",
+    "time",
+    "trade_date",
+    "trading_date",
+    "price_date",
+    "as_of_date",
+    "asof",
+)
 
-class VolatilityRegimeResult(TypedDict):
-    volatility_regime: str; volatility_score: float; tail_risk: float
-    volatility_percentile: float; yang_zhang_vol: float; expected_move: float; evidence: List[EvidenceItem]
 
-class RiskRegimeResult(TypedDict):
-    risk_regime: str; risk_score: float; crisis_probability: float
-    amihud_liquidity: float; pca_systemic_risk: float; cross_asset_stress: float; evidence: List[EvidenceItem]
+@dataclass
+class EvidenceNode:
+    domain: str
+    direction: float
+    magnitude: float
+    message: str
 
-class CompositeScoreResult(TypedDict):
-    market_regime_score: float; bull_score: float; bear_score: float
-    sideways_score: float; volatility_score: float; risk_score: float
-    overall_market_regime: str; regime_confidence: float; institutional_conviction: float
-    probability_bull: float; probability_bear: float; probability_sideways: float
-    viterbi_state: str; shannon_entropy: float; hmm_forward_bull: float; hmm_forward_bear: float
 
-class SummaryResult(TypedDict):
-    current_market_regime: str; market_cycle: str; recommended_positioning: str
-    gross_exposure: float; net_exposure: float; leverage: float; hedge_ratio: float
-    cash_target: float; sector_rotation: str; tail_risk: str; expected_drawdown: float
-    regime_duration_expected: float; probability_of_transition: float; confidence: float
-    top_positive_factors: List[str]; top_negative_factors: List[str]
-    key_risks: List[str]; key_opportunities: List[str]
+# ============================================================================
+# SAFE NUMERIC HELPERS
+# ============================================================================
 
-class MarketRegimeAnalysisResult(TypedDict):
-    bull_market: BullMarketResult; bear_market: BearMarketResult
-    sideways_market: SidewaysMarketResult; volatility_regime: VolatilityRegimeResult
-    risk_regime: RiskRegimeResult; composite_score: CompositeScoreResult; summary: SummaryResult
+def _num(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
 
-# ==============================================================================
-# MAIN ENGINE
-# ==============================================================================
+    try:
+        if isinstance(value, str):
+            text = value.strip().replace(",", "").replace("%", "")
+            if not text:
+                return None
+            value = float(text)
+
+        result = float(value)
+
+        if not math.isfinite(result):
+            return None
+
+        return result
+
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    number = _num(value)
+    return number
+
+
+def _clip(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _sigmoid(value: float) -> float:
+    value = _clip(value, -20.0, 20.0)
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _score(
+    value: float,
+    neutral: float,
+    scale: float,
+    invert: bool = False,
+) -> float:
+    if scale <= 0:
+        return 50.0
+
+    z = (value - neutral) / scale
+
+    if invert:
+        z = -z
+
+    return _sigmoid(z) * 100.0
+
+
+def _likelihood_ratio(magnitude: float, direction: float) -> float:
+    base = 1.0 + (_clip(magnitude, 0.0, 1.0) * 3.0)
+
+    if direction >= 0:
+        ratio = base
+    else:
+        ratio = 1.0 / base
+
+    return _clip(ratio, MIN_LR, MAX_LR)
+
+
+def _parse_time(value: Any) -> float:
+    if value is None:
+        return 0.0
+
+    numeric = _num(value)
+
+    if numeric is not None:
+        return numeric
+
+    text = str(value).strip()
+
+    if not text:
+        return 0.0
+
+    match = re.match(
+        r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})",
+        text,
+    )
+
+    if match:
+        try:
+            year = int(match.group(1))
+            month = int(match.group(2))
+            day = int(match.group(3))
+            return float(year * 10000 + month * 100 + day)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return 0.0
+
+
+def _normalize_key(key: Any) -> str:
+    text = str(key).strip().lower()
+    text = text.replace("-", "_")
+    text = text.replace(" ", "_")
+    text = re.sub(r"_+", "_", text)
+    return text
+
+
+def _string(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        return None
+
+    value = value.strip()
+
+    return value if value else None
+
+
+# ============================================================================
+# ANALYZER
+# ============================================================================
+
 class MarketRegimeAnalyzer:
-    EXPECTED_SCHEMA = [
-        'open', 'high', 'low', 'close', 'volume', 
-        'ema_20', 'ema_50', 'ema_200', 'sma_200', 'supertrend_direction',
-        'adx', 'rsi', 'macd', 'macd_signal', 'macd_hist', 'roc_20', 'atr',
-        'bollinger_upper', 'bollinger_lower', 'donchian_upper', 'donchian_lower', 
-        'vwap', 'obv', 'cmf', 'advance_decline_line', 'new_highs_52w', 'new_lows_52w', 
-        'distribution_days', 'vix_proxy', 'credit_spread_proxy', 'beta', 
-        'yield_10y', 'gold_ret', 'dxy_ret', 'oil_ret'
-    ]
+    """
+    Production-grade market regime analyzer.
 
-    def __init__(self, config: Optional[Dict] = None):
-        self.config = config or REGIME_CONFIG
+    Responsibilities:
+        - Parse database/L3 payloads.
+        - Preserve chronological history.
+        - Select latest VALID observations per feature.
+        - Never fabricate missing values.
+        - Detect market regime from available evidence.
+        - Detect trend, volatility, momentum, participation and risk context.
+        - Detect regime transitions.
+        - Detect contradictions.
+        - Produce deterministic JSON-serializable output.
+        - Expose complete feature coverage and tracing.
 
-    def _safe_div(self, num: float, den: float, default: float = 0.0) -> float:
-        return num / den if den and not math.isnan(den) and den != 0 else default
+    Explicitly does NOT:
+        - Buy/Sell decisions.
+        - Entry/Stop/Target calculations.
+        - Position sizing.
+        - Score-engine integration.
+        - Stock-specific hardcoded decisions.
+    """
 
-    def _stable_sigmoid(self, log_odds: float) -> float:
-        if log_odds >= 0: return 1.0 / (1.0 + math.exp(-log_odds))
-        return math.exp(log_odds) / (1.0 + math.exp(log_odds))
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(
+            f"{__name__}.{self.__class__.__name__}"
+        )
 
-    def _student_t_pdf(self, x: float, nu: float, mu: float, sigma: float) -> float:
-        """Computes Student-t PDF for Fat-Tailed Financial Returns."""
-        if sigma <= 0: return 1e-9
-        coef = math.gamma((nu + 1) / 2) / (math.gamma(nu / 2) * sigma * math.sqrt(nu * math.pi))
-        base = 1 + ((x - mu) ** 2) / (nu * (sigma ** 2))
-        pdf = coef * (base ** (-(nu + 1) / 2))
-        return max(pdf, 1e-9)
+    # ----------------------------------------------------------------------
+    # PUBLIC API
+    # ----------------------------------------------------------------------
 
-    def _bayesian_aggregation(self, evidence: List[EvidenceItem]) -> Tuple[float, float]:
-        if not evidence: return 0.5, 0.0
-        log_prior = math.log(self.config['scalars']['base_prior'] / (1.0 - self.config['scalars']['base_prior']))
-        
-        cat_log_lrs = defaultdict(list)
-        for e in evidence:
-            if not math.isnan(e['likelihood_ratio']):
-                val = e['reliability'] * math.log(max(e['likelihood_ratio'], 1e-5))
-                cat_log_lrs[e['category']].append(val)
-            
-        damped_log_lr = 0.0
-        for cat, vals in cat_log_lrs.items():
-            damping = 1.0 / (len(vals) ** self.config['scalars']['bayesian_damping_power']) if vals else 1.0
-            damped_log_lr += sum(vals) * damping
-            
-        log_post = log_prior + damped_log_lr
-        return self._stable_sigmoid(log_post), log_post
+    def analyze(
+        self,
+        data: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
 
-    def _validate_integrity(self, df: pd.DataFrame) -> Tuple[float, Dict[str, float]]:
-        """Strict Integrity with NaN tolerance and Outlier Detection."""
-        penalty = 0.0
-        if not df.empty and len(df) > 5:
-            close_var = df['close'].tail(5).var()
-            if close_var == 0: penalty += self.config['penalties']['zero_variance']
-            
-            returns = df['close'].pct_change().dropna()
-            if not returns.empty and returns.std() > 0:
-                z_score = abs(returns.iloc[-1] - returns.mean()) / returns.std()
-                if z_score > self.config['penalties']['outlier_z_threshold']:
-                    penalty += self.config['penalties']['outlier_penalty']
-                    
-        integrity = np.clip(100.0 - penalty, 0.0, 100.0)
-        latest = df.iloc[-1] if not df.empty else pd.Series()
-        
-        # Zero Fallback Values. We keep np.nan to allow dynamic weighting exclusion.
-        l1 = {f: float(latest.get(f, np.nan)) for f in self.EXPECTED_SCHEMA}
-        return integrity, l1
+        try:
+            snapshots = self._parse_payload_chronologically(data)
 
-    def _calculate_yang_zhang(self, df: pd.DataFrame) -> float:
-        if len(df) < 20 or not all(k in df.columns for k in ['open', 'high', 'low', 'close']):
-            return np.nan
-        
-        o, h, l, c = df['open'], df['high'], df['low'], df['close']
-        c_prev = c.shift(1)
-        
-        vol_o = np.log(o / c_prev.replace(0, np.nan)).var()
-        vol_c = np.log(c / o.replace(0, np.nan)).var()
-        rs = np.log(h / c.replace(0, np.nan)) * np.log(h / o.replace(0, np.nan)) + \
-             np.log(l / c.replace(0, np.nan)) * np.log(l / o.replace(0, np.nan))
-        vol_rs = rs.mean()
-        
-        k = 0.34 / (1.34 + (20 + 1) / (20 - 1))
-        yz_var = vol_o + (k * vol_c) + ((1 - k) * vol_rs)
-        return math.sqrt(max(yz_var, 0)) * math.sqrt(252) * 100
+            if not snapshots:
+                return self._empty()
 
-    def _calculate_hurst_exponent(self, returns: pd.Series) -> float:
-        """Variance-Ratio proxy for Hurst Exponent."""
-        if len(returns) < 20: return np.nan
-        var_1 = returns.var()
-        var_10 = returns.rolling(10).sum().var()
-        if var_1 == 0 or math.isnan(var_10): return 0.5
-        hurst = (0.5 * math.log2(var_10 / (10 * var_1))) + 0.5
-        return np.clip(hurst, 0.1, 0.9)
+            feature_history = self._extract_feature_history(snapshots)
 
-    def _viterbi_decoding(self, returns: np.ndarray) -> str:
-        """True Viterbi Path Decoding for the Hidden Markov Model."""
-        if len(returns) == 0: return "Unknown"
-        
-        states = ["Bull", "Bear", "Sideways"]
-        n_states = len(states)
-        T = len(returns)
-        
-        tm = self.config['hmm']['transition_matrix']
-        emissions = self.config['hmm']['emissions']
-        nu = self.config['scalars']['student_t_dof']
-        
-        viterbi = np.zeros((n_states, T))
-        backpointer = np.zeros((n_states, T), dtype=int)
-        
-        # Initialization
-        prior = np.array([0.33, 0.33, 0.34])
-        for s in range(n_states):
-            mu, sig = emissions[states[s]]
-            e_prob = self._student_t_pdf(returns[0], nu, mu, sig)
-            viterbi[s, 0] = math.log(prior[s]) + math.log(e_prob)
-            
-        # Recursion
-        for t in range(1, T):
-            for s in range(n_states):
-                mu, sig = emissions[states[s]]
-                e_prob = self._student_t_pdf(returns[t], nu, mu, sig)
-                
-                max_tr_prob = viterbi[0, t-1] + math.log(tm[0, s])
-                prev_st_selected = 0
-                for prev_s in range(1, n_states):
-                    tr_prob = viterbi[prev_s, t-1] + math.log(tm[prev_s, s])
-                    if tr_prob > max_tr_prob:
-                        max_tr_prob = tr_prob
-                        prev_st_selected = prev_s
-                        
-                viterbi[s, t] = max_tr_prob + math.log(e_prob)
-                backpointer[s, t] = prev_st_selected
-                
-        # Termination
-        best_last_state = int(np.argmax(viterbi[:, T-1]))
-        return states[best_last_state]
+            latest_values, feature_trace = self._build_latest_features(
+                snapshots,
+                feature_history,
+            )
 
-    def analyze(self, df: pd.DataFrame) -> MarketRegimeAnalysisResult:
-        if df.empty: raise ValueError("MarketRegimeAnalyzer: Empty DataFrame")
-        
-        integrity_score, l1 = self._validate_integrity(df)
-        
-        close_series = df['close'] if 'close' in df.columns else pd.Series()
-        returns = close_series.pct_change().fillna(0)
-        current_ret = returns.iloc[-1] if not returns.empty else 0.0
-        
-        high_max_200 = close_series.rolling(200).max().iloc[-1] if len(close_series) >= 200 else np.nan
-        drawdown = self._safe_div(l1.get('close', np.nan) - high_max_200, high_max_200) if not math.isnan(high_max_200) else np.nan
-        
-        yz_vol = self._calculate_yang_zhang(df)
-        hurst = self._calculate_hurst_exponent(returns.tail(40))
-        
-        # Rolling Amihud Illiquidity
-        if 'volume' in df.columns:
-            amihud_series = (returns.abs() / (df['close'] * df['volume'])).replace([np.inf, -np.inf], np.nan)
-            amihud = amihud_series.rolling(self.config['scalars']['amihud_lookback']).mean().iloc[-1] * 1e9
-        else:
-            amihud = np.nan
-        
-        if len(close_series) >= 14:
-            net_change = abs(close_series.iloc[-1] - close_series.iloc[-14])
-            sum_abs_changes = abs(close_series.diff(1).tail(14)).sum()
-            er = self._safe_div(net_change, sum_abs_changes, default=np.nan)
-        else:
-            er = np.nan
-            
-        hist_context = {
-            "drawdown": drawdown, "yang_zhang": yz_vol, "amihud": amihud, "er": er,
-            "hurst": hurst, "current_ret": current_ret, "returns_series": returns
-        }
-        
-        bull = self._analyze_bull_market(l1, df)
-        bear = self._analyze_bear_market(l1, df, hist_context)
-        side = self._analyze_sideways_market(l1, hist_context)
-        vol = self._analyze_volatility(l1, hist_context)
-        risk = self._analyze_risk(l1, hist_context)
-        
-        all_ev = bull['evidence'] + bear['evidence'] + side['evidence'] + vol['evidence'] + risk['evidence']
-        
-        comp = self._generate_composite_score(bull, bear, side, vol, risk, all_ev, integrity_score, hist_context)
-        summary = self._generate_summary(comp, vol, risk, all_ev)
-        
+            coverage = self._build_feature_coverage(
+                latest_values,
+                feature_trace,
+            )
+
+            trend = self._analyze_trend(
+                latest_values,
+                feature_history,
+            )
+
+            momentum = self._analyze_momentum(
+                latest_values,
+                feature_history,
+            )
+
+            volatility = self._analyze_volatility(
+                latest_values,
+                feature_history,
+            )
+
+            participation = self._analyze_participation(
+                latest_values,
+                feature_history,
+            )
+
+            risk = self._analyze_risk(
+                latest_values,
+                feature_history,
+            )
+
+            transition = self._analyze_transition(
+                latest_values,
+                feature_history,
+            )
+
+            regime = self._detect_regime(
+                trend=trend,
+                momentum=momentum,
+                volatility=volatility,
+                participation=participation,
+                risk=risk,
+                transition=transition,
+            )
+
+            evidence_nodes: List[EvidenceNode] = []
+
+            evidence_nodes.extend(trend["evidence"])
+            evidence_nodes.extend(momentum["evidence"])
+            evidence_nodes.extend(volatility["evidence"])
+            evidence_nodes.extend(participation["evidence"])
+            evidence_nodes.extend(risk["evidence"])
+            evidence_nodes.extend(transition["evidence"])
+            evidence_nodes.extend(regime["evidence"])
+
+            evidence = self._format_evidence(evidence_nodes)
+
+            confidence = self._calculate_confidence(
+                snapshots=snapshots,
+                coverage=coverage,
+                trend=trend,
+                momentum=momentum,
+                volatility=volatility,
+                participation=participation,
+                risk=risk,
+                transition=transition,
+                evidence=evidence,
+            )
+
+            return {
+                "market_regime_analyzer": {
+                    "confidence": self._round(confidence),
+
+                    "regime": self._round(regime["regime"]),
+                    "regime_status": regime["regime_status"],
+                    "regime_score": self._round(regime["regime_score"]),
+
+                    "trend": self._round(trend["value"]),
+                    "trend_strength": self._round(
+                        trend["strength"]
+                    ),
+
+                    "volatility": self._round(
+                        volatility["value"]
+                    ),
+                    "volatility_status": volatility["status"],
+
+                    "momentum": self._round(
+                        momentum["value"]
+                    ),
+                    "momentum_status": momentum["status"],
+
+                    "participation": self._round(
+                        participation["value"]
+                    ),
+                    "participation_status": participation["status"],
+
+                    "risk": self._round(risk["value"]),
+                    "risk_status": risk["status"],
+
+                    "transition": self._round(
+                        transition["value"]
+                    ),
+                    "transition_status": transition["status"],
+
+                    "feature_coverage_pct": self._round(
+                        coverage["coverage_pct"]
+                    ),
+
+                    "feature_trace_summary": coverage["summary"],
+
+                    "feature_trace": feature_trace,
+
+                    "domain_coverage": coverage["domain_coverage"],
+
+                    "evidence": evidence[:12],
+                }
+            }
+
+        except Exception as exc:
+            self.logger.exception(
+                "Market Regime Analyzer Critical Failure: %s",
+                exc,
+            )
+
+            result = self._empty()
+
+            result["market_regime_analyzer"]["evidence"].append(
+                {
+                    "category": "Regime",
+                    "domain": "system",
+                    "message": "Execution encountered a critical failure.",
+                    "reliability": 0.96,
+                    "likelihood_ratio": 0.42,
+                }
+            )
+
+            return result
+
+    # ----------------------------------------------------------------------
+    # EMPTY
+    # ----------------------------------------------------------------------
+
+    def _empty(self) -> Dict[str, Any]:
+        feature_names = list(FIELD_CONTRACTS.keys())
+
         return {
-            "bull_market": bull, "bear_market": bear, "sideways_market": side,
-            "volatility_regime": vol, "risk_regime": risk,
-            "composite_score": comp, "summary": summary
+            "market_regime_analyzer": {
+                "confidence": 0.0,
+
+                "regime": None,
+                "regime_status": "insufficient_data",
+                "regime_score": None,
+
+                "trend": None,
+                "trend_strength": None,
+
+                "volatility": None,
+                "volatility_status": "unknown",
+
+                "momentum": None,
+                "momentum_status": "unknown",
+
+                "participation": None,
+                "participation_status": "unknown",
+
+                "risk": None,
+                "risk_status": "unknown",
+
+                "transition": None,
+                "transition_status": "unknown",
+
+                "feature_coverage_pct": 0.0,
+
+                "feature_trace_summary": {
+                    "total_features": len(feature_names),
+                    "used_features": 0,
+                    "available_not_used": 0,
+                    "missing_features": len(feature_names),
+                    "invalid_features": 0,
+                    "coverage_pct": 0.0,
+                    "used_feature_names": [],
+                    "available_not_used_names": [],
+                    "missing_feature_names": feature_names,
+                    "invalid_feature_names": [],
+                },
+
+                "feature_trace": {},
+
+                "domain_coverage": {
+                    domain: {
+                        "total_features": len(features),
+                        "used_features": 0,
+                        "coverage_pct": 0.0,
+                        "used_feature_names": [],
+                        "missing_feature_names": list(features),
+                    }
+                    for domain, features in DOMAIN_FEATURES.items()
+                },
+
+                "evidence": [],
+            }
         }
 
-    # ---------------------------------------------------------
-    # 1. BULL MARKET ENGINE (Momentum & Breadth)
-    # ---------------------------------------------------------
-    def _analyze_bull_market(self, l1: Dict[str, float], df: pd.DataFrame) -> BullMarketResult:
-        ev = []
-        score_weights = 0.0
-        total_weights = 0.0
-        
-        def add_metric(val, is_bullish, weight, feature, likelihood):
-            nonlocal score_weights, total_weights
-            if not math.isnan(val):
-                total_weights += weight
-                if is_bullish:
-                    score_weights += weight
-                    ev.append({"category": "Bull", "feature": feature, "weight": weight, "polarity": 1, "reliability": 0.9, "likelihood_ratio": likelihood, "explanation": f"Bullish confirmation from {feature}."})
+    # ----------------------------------------------------------------------
+    # PAYLOAD PARSER
+    # ----------------------------------------------------------------------
 
-        c, e20, e50, e200 = l1.get('close'), l1.get('ema_20'), l1.get('ema_50'), l1.get('ema_200')
-        add_metric(c, c > e20 if c and e20 else False, 15, "Price > EMA20", 1.5)
-        add_metric(e20, e20 > e50 if e20 and e50 else False, 20, "EMA20 > EMA50", 1.6)
-        
-        st_dir = l1.get('supertrend_direction')
-        add_metric(st_dir, st_dir > 0 if st_dir else False, 20, "Supertrend Bullish", 1.8)
-        
-        macd_h = l1.get('macd_hist')
-        add_metric(macd_h, macd_h > 0 if macd_h else False, 10, "MACD Histogram", 1.3)
-        
-        ad_line_slope = np.nan
-        if 'advance_decline_line' in df.columns and len(df) > 5:
-            ad_line_slope = df['advance_decline_line'].diff(5).iloc[-1]
-        add_metric(ad_line_slope, ad_line_slope > 0 if not math.isnan(ad_line_slope) else False, 15, "AD Line Expanding", 1.7)
-        
-        obv_slope = np.nan
-        if 'obv' in df.columns and len(df) > 5:
-            obv_slope = df['obv'].diff(5).iloc[-1]
-        add_metric(obv_slope, obv_slope > 0 if not math.isnan(obv_slope) else False, 15, "OBV Accumulation", 1.6)
-        
-        strength = self._safe_div(score_weights, total_weights) * 100.0 if total_weights > 0 else 0.0
-        prob, _ = self._bayesian_aggregation(ev)
-        
-        phase = "Neutral"
-        if strength > 80: phase = "Strong Bull"
-        elif strength > 55: phase = "Bull"
-        elif strength > 40: phase = "Recovery Bull"
-        
-        return {"bull_probability": prob * 100.0, "bull_strength": strength, "bull_phase": phase, "bull_score": strength, "institutional_support": strength * 0.9, "evidence": ev}
+    def _parse_payload_chronologically(
+        self,
+        data: Any,
+    ) -> List[Dict[str, Any]]:
 
-    # ---------------------------------------------------------
-    # 2. BEAR MARKET ENGINE (Distribution & Panic Volume)
-    # ---------------------------------------------------------
-    def _analyze_bear_market(self, l1: Dict[str, float], df: pd.DataFrame, hist: Dict[str, float]) -> BearMarketResult:
-        ev = []
-        score_weights = 0.0
-        total_weights = 0.0
-        
-        def add_metric(val, is_bearish, weight, feature, likelihood):
-            nonlocal score_weights, total_weights
-            if not math.isnan(val):
-                total_weights += weight
-                if is_bearish:
-                    score_weights += weight
-                    ev.append({"category": "Bear", "feature": feature, "weight": weight, "polarity": -1, "reliability": 0.9, "likelihood_ratio": likelihood, "explanation": f"Bearish signal from {feature}."})
+        raw_rows: List[Dict[str, Any]] = []
 
-        c, e20, e50 = l1.get('close'), l1.get('ema_20'), l1.get('ema_50')
-        add_metric(c, c < e20 if c and e20 else False, 15, "Price < EMA20", 1.5)
-        add_metric(e20, e20 < e50 if e20 and e50 else False, 20, "EMA20 < EMA50", 1.6)
-        
-        dist_days = l1.get('distribution_days')
-        add_metric(dist_days, dist_days >= 4 if dist_days else False, 20, "High Distribution Days", 2.0)
-        
-        panic_vol = False
-        if len(df) > 5 and 'volume' in df.columns:
-            down_vol = df['volume'][df['close'] < df['open']].mean()
-            up_vol = df['volume'][df['close'] >= df['open']].mean()
-            if down_vol > (up_vol * 1.5): panic_vol = True
-        add_metric(1.0 if panic_vol else 0.0, panic_vol, 20, "Panic Volume", 2.2)
-        
-        strength = self._safe_div(score_weights, total_weights) * 100.0 if total_weights > 0 else 0.0
-        prob, _ = self._bayesian_aggregation(ev)
-        
-        phase = "Neutral"
-        dd = hist['drawdown']
-        if strength > 80 and not math.isnan(dd) and dd < -0.15: phase = "Capitulation"
-        elif strength > 70: phase = "Strong Bear"
-        elif strength > 50: phase = "Structural Bear"
-        
-        return {"bear_probability": prob * 100.0, "bear_strength": strength, "bear_phase": phase, "distribution_score": strength, "selling_pressure": strength, "evidence": ev}
+        if data is None:
+            return []
 
-    # ---------------------------------------------------------
-    # 3. SIDEWAYS MARKET ENGINE (Efficiency Ratio & Hurst)
-    # ---------------------------------------------------------
-    def _analyze_sideways_market(self, l1: Dict[str, float], hist: Dict[str, float]) -> SidewaysMarketResult:
-        ev = []
-        er = hist['er']
-        hurst = hist['hurst']
-        adx = l1.get('adx')
-        
-        score_weights = 0.0
-        total_weights = 0.0
-        
-        if not math.isnan(er):
-            total_weights += 30
-            if er < 0.3:
-                score_weights += 30
-                ev.append({"category": "Sideways", "feature": "Efficiency Ratio", "weight": 20.0, "polarity": 1, "reliability": 0.95, "likelihood_ratio": 1.8, "explanation": f"Low price efficiency (ER={er:.2f}) indicates mean-reverting regime."})
-                
-        if not math.isnan(hurst):
-            total_weights += 40
-            if hurst < 0.45: # Mean reverting
-                score_weights += 40
-                ev.append({"category": "Sideways", "feature": "Hurst Exponent", "weight": 25.0, "polarity": 1, "reliability": 0.9, "likelihood_ratio": 1.9, "explanation": f"Hurst Exponent ({hurst:.2f}) validates mean-reverting regime."})
-                
-        if not math.isnan(adx):
-            total_weights += 30
-            if adx < 20.0: score_weights += 30
-                
-        strength = self._safe_div(score_weights, total_weights) * 100.0 if total_weights > 0 else 0.0
-        prob, _ = self._bayesian_aggregation(ev)
-        
-        return {"range_probability": prob * 100.0, "compression_score": strength, "breakout_probability": 100.0 - strength, "support_quality": 50.0 + (strength * 0.2), "resistance_quality": 50.0 + (strength * 0.2), "efficiency_ratio": er if not math.isnan(er) else 0.0, "hurst_proxy": hurst if not math.isnan(hurst) else 0.0, "evidence": ev}
+        # pandas DataFrame without importing pandas.
+        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+            try:
+                rows = data.to_dict(orient="records")
 
-    # ---------------------------------------------------------
-    # 4. VOLATILITY ENGINE (Yang-Zhang)
-    # ---------------------------------------------------------
-    def _analyze_volatility(self, l1: Dict[str, float], hist: Dict[str, float]) -> VolatilityRegimeResult:
-        vix = l1.get('vix_proxy', np.nan)
-        yz = hist['yang_zhang']
-        
-        vols = [v for v in [vix, yz] if not math.isnan(v)]
-        vol_score = np.mean(vols) if vols else 0.0 # Zero fallback resolved via absence
-        
-        regime = "Normal"
-        if vol_score > 30: regime = "Crisis"
-        elif vol_score > 20: regime = "High"
-        elif vol_score > 0 and vol_score < 10: regime = "Very Low"
-        elif vol_score > 0 and vol_score < 15: regime = "Low"
-        
-        ev = []
-        if vol_score > 25: ev.append({"category": "Volatility", "feature": "Expansion", "weight": 20.0, "polarity": -1, "reliability": 0.98, "likelihood_ratio": 2.5, "explanation": f"Extreme volatility expansion detected."})
-        
-        return {"volatility_regime": regime, "volatility_score": np.clip(vol_score * 3.0, 0, 100), "tail_risk": np.clip(vol_score * 4.0, 0, 100), "volatility_percentile": 50.0, "yang_zhang_vol": yz if not math.isnan(yz) else 0.0, "expected_move": vol_score / math.sqrt(252), "evidence": ev}
+                if isinstance(rows, list):
+                    raw_rows.extend(
+                        row for row in rows
+                        if isinstance(row, Mapping)
+                    )
 
-    # ---------------------------------------------------------
-    # 5. RISK REGIME ENGINE (PCA Cross-Asset Stress & Amihud)
-    # ---------------------------------------------------------
-    def _analyze_risk(self, l1: Dict[str, float], hist: Dict[str, float]) -> RiskRegimeResult:
-        amihud = hist['amihud']
-        credit = l1.get('credit_spread_proxy', np.nan)
-        
-        # PCA-Based Systemic Stress via Covariance / Correlation Matrix Eigenvalues
-        assets = [l1.get('yield_10y', np.nan), l1.get('gold_ret', np.nan), l1.get('dxy_ret', np.nan), l1.get('oil_ret', np.nan)]
-        valid_assets = [a for a in assets if not math.isnan(a)]
-        pca_stress = 0.0
-        
-        if len(valid_assets) >= 3:
-            # Synthetic correlation matrix proxy since we only have single data points for cross assets in L1
-            # In a real pipeline, we'd pass the full DF. Here we proxy stress if assets move together in risk-off manner
-            stress_proxy = np.std(valid_assets)
-            pca_stress = min(stress_proxy * 500.0, 100.0) # Scaled
-        
-        risk_components = []
-        if not math.isnan(amihud): risk_components.append(np.clip(amihud * 10.0, 0, 100))
-        if not math.isnan(credit): risk_components.append(np.clip(credit * 20.0, 0, 100))
-        if pca_stress > 0: risk_components.append(pca_stress)
-        
-        sys_risk = np.mean(risk_components) if risk_components else 0.0
-        
-        regime = "Neutral"
-        if sys_risk > 80: regime = "Liquidity Crisis"
-        elif sys_risk > 60: regime = "Flight to Safety"
-        elif sys_risk < 30 and sys_risk > 0: regime = "Risk ON"
-        
-        ev = []
-        if not math.isnan(amihud) and amihud > 5.0:
-            ev.append({"category": "Risk", "feature": "Amihud Illiquidity", "weight": 20.0, "polarity": -1, "reliability": 0.95, "likelihood_ratio": 2.5, "explanation": "Severe illiquidity detected via Amihud Ratio."})
-        if pca_stress > 60.0:
-            ev.append({"category": "Risk", "feature": "Cross-Asset Stress", "weight": 18.0, "polarity": -1, "reliability": 0.9, "likelihood_ratio": 2.0, "explanation": "High systemic stress detected across macro asset classes."})
-            
-        prob, _ = self._bayesian_aggregation(ev)
-        return {"risk_regime": regime, "risk_score": sys_risk, "crisis_probability": prob * 100.0, "amihud_liquidity": amihud if not math.isnan(amihud) else 0.0, "systemic_risk": sys_risk, "cross_asset_stress": pca_stress, "evidence": ev}
+            except Exception:
+                pass
 
-    # ---------------------------------------------------------
-    # 6. COMPOSITE (HMM Forward/Viterbi Inferences & Entropy)
-    # ---------------------------------------------------------
-    def _generate_composite_score(self, bull, bear, side, vol, risk, all_ev, integrity, hist) -> CompositeScoreResult:
-        ret = hist['current_ret']
-        nu = self.config['scalars']['student_t_dof']
-        
-        # 1. Student-t Emission Probabilities
-        emissions = self.config['hmm']['emissions']
-        e_bull = self._student_t_pdf(ret, nu, emissions['Bull'][0], emissions['Bull'][1])
-        e_bear = self._student_t_pdf(ret, nu, emissions['Bear'][0], emissions['Bear'][1])
-        e_side = self._student_t_pdf(ret, nu, emissions['Sideways'][0], emissions['Sideways'][1])
-        
-        # 2. Prior State Probabilities
-        exp_b = math.exp(bull['bull_score'] / 20.0)
-        exp_br = math.exp(bear['bear_strength'] / 20.0)
-        exp_s = math.exp(side['compression_score'] / 20.0)
-        tot_exp = exp_b + exp_br + exp_s + 1e-9
-        
-        prior_vector = np.array([exp_b/tot_exp, exp_br/tot_exp, exp_s/tot_exp])
-        
-        # 3. Transition & Forward Filter Bayesian Update
-        tm = self.config['hmm']['transition_matrix']
-        transitioned_prior = np.dot(prior_vector, tm)
-        
-        unnormalized_post = transitioned_prior * np.array([e_bull, e_bear, e_side])
-        norm_factor = np.sum(unnormalized_post) + 1e-9
-        post_bull, post_bear, post_side = unnormalized_post / norm_factor
-        
-        # Shannon Entropy
-        entropy = 0.0
-        for p in [post_bull, post_bear, post_side]:
-            if p > 0: entropy -= p * math.log2(p)
-        max_entropy = math.log2(3)
-        entropy_ratio = entropy / max_entropy 
-        
-        bayesian_prob, _ = self._bayesian_aggregation(all_ev)
-        base_conf = bayesian_prob * 100.0 * (integrity / 100.0)
-        conf = base_conf * (1.0 - (entropy_ratio * 0.5)) 
-        
-        mrs = np.clip((post_bull * 150.0) - (post_bear * 150.0) + 50.0, 0, 100)
-        
-        # True Viterbi Path for latest sequence
-        returns_seq = hist['returns_series'].tail(20).values
-        viterbi_state = self._viterbi_decoding(returns_seq) if len(returns_seq) > 0 else "Unknown"
-        
-        if viterbi_state == "Bull": overall = "Bull Market"
-        elif viterbi_state == "Bear": overall = "Bear Market"
-        else: overall = "Sideways / Transitional"
-        
-        return {
-            "market_regime_score": mrs, "bull_score": bull['bull_score'], "bear_score": bear['bear_strength'],
-            "sideways_score": side['compression_score'], "volatility_score": vol['volatility_score'], "risk_score": risk['risk_score'],
-            "overall_market_regime": overall, "regime_confidence": conf, "institutional_conviction": max(post_bull, post_bear, post_side) * conf,
-            "probability_bull": prior_vector[0] * 100.0, "probability_bear": prior_vector[1] * 100.0, "probability_sideways": prior_vector[2] * 100.0,
-            "viterbi_state": viterbi_state, "shannon_entropy": entropy,
-            "hmm_forward_bull": post_bull * 100.0, "hmm_forward_bear": post_bear * 100.0
+        elif isinstance(data, Mapping):
+
+            nested_keys = (
+                "features",
+                "historical_data",
+                "historical",
+                "market_history",
+                "market_data",
+                "regime_history",
+                "rows",
+                "records",
+                "data",
+                "items",
+            )
+
+            found = False
+
+            for key in nested_keys:
+                value = data.get(key)
+
+                if isinstance(value, list):
+                    raw_rows.extend(
+                        row for row in value
+                        if isinstance(row, Mapping)
+                    )
+                    found = True
+
+                elif (
+                    isinstance(value, Mapping)
+                    and self._looks_like_snapshot(value)
+                ):
+                    raw_rows.append(dict(value))
+                    found = True
+
+            # Direct snapshot.
+            if not found and self._looks_like_snapshot(data):
+                raw_rows.append(dict(data))
+
+        elif isinstance(data, Sequence) and not isinstance(
+            data,
+            (str, bytes, bytearray),
+        ):
+            raw_rows.extend(
+                dict(row)
+                for row in data
+                if isinstance(row, Mapping)
+            )
+
+        extracted: List[Dict[str, Any]] = []
+
+        for index, row in enumerate(raw_rows):
+            normalized: Dict[str, Any] = {}
+
+            for raw_key, value in row.items():
+                key = _normalize_key(raw_key)
+                normalized[key] = value
+
+            timestamp = self._extract_timestamp(normalized)
+
+            normalized["_t"] = timestamp
+            normalized["_idx"] = index
+
+            if len(normalized) > 2:
+                extracted.append(normalized)
+
+        extracted.sort(
+            key=lambda row: (
+                row.get("_t", 0.0),
+                row.get("_idx", 0),
+            )
+        )
+
+        return extracted
+
+    def _looks_like_snapshot(
+        self,
+        value: Mapping[str, Any],
+    ) -> bool:
+
+        normalized_keys = {
+            _normalize_key(key)
+            for key in value.keys()
         }
 
-    # ---------------------------------------------------------
-    # 8. AI SUMMARY (MCMC Regime Durations & Allocations)
-    # ---------------------------------------------------------
-    def _generate_summary(self, comp, vol, risk, all_ev) -> SummaryResult:
-        post_bull = comp['hmm_forward_bull'] / 100.0
-        post_bear = comp['hmm_forward_bear'] / 100.0
-        post_side = 1.0 - post_bull - post_bear
-        
-        # Stochastic MCMC Path Simulation (5000 paths, length=20)
-        tm = self.config['hmm']['transition_matrix']
-        sims = self.config['scalars']['hmm_simulations']
-        horizon = self.config['scalars']['hmm_horizon_days']
-        
-        current_idx = np.argmax([post_bull, post_bear, post_side])
-        transitions = 0
-        
-        # Fast Vectorized MCMC Transition Estimation
-        for _ in range(sims):
-            state = current_idx
-            for _ in range(horizon):
-                state = np.random.choice([0, 1, 2], p=tm[state])
-                if state != current_idx:
-                    transitions += 1
+        known = set()
+
+        for aliases in FIELD_CONTRACTS.values():
+            known.update(alias for alias, _ in aliases)
+
+        return bool(normalized_keys.intersection(known))
+
+    def _extract_timestamp(
+        self,
+        row: Mapping[str, Any],
+    ) -> float:
+
+        for alias in DATE_ALIASES:
+            key = _normalize_key(alias)
+
+            if key in row:
+                parsed = _parse_time(row[key])
+
+                if parsed > 0:
+                    return parsed
+
+        return 0.0
+
+    # ----------------------------------------------------------------------
+    # FEATURE EXTRACTION
+    # ----------------------------------------------------------------------
+
+    def _extract_feature_history(
+        self,
+        snapshots: List[Dict[str, Any]],
+    ) -> Dict[str, List[Tuple[float, float]]]:
+
+        history: Dict[str, List[Tuple[float, float]]] = {}
+
+        for feature, aliases in FIELD_CONTRACTS.items():
+
+            series: List[Tuple[float, float]] = []
+
+            for snapshot in snapshots:
+
+                value = None
+
+                for alias, multiplier in aliases:
+
+                    if alias not in snapshot:
+                        continue
+
+                    raw = _num(snapshot.get(alias))
+
+                    if raw is None:
+                        continue
+
+                    normalized = raw * multiplier
+
+                    if not math.isfinite(normalized):
+                        continue
+
+                    value = normalized
                     break
-        
-        trans_prob = (transitions / sims) * 100.0
-        
-        # Expected Duration (Math: 1 / 1 - Pii)
-        expected_duration_days = 1.0 / (1.0 - tm[current_idx, current_idx]) if tm[current_idx, current_idx] < 1.0 else 999.0
-        
-        if comp['hmm_forward_bull'] > 60:
-            gross, net, lev, hdg, csh = 150.0, 85.0, 1.5, 5.0, 5.0
-            pos, cycle, sec = "Aggressive Long", "Expansion", "High Beta"
-        elif comp['hmm_forward_bear'] > 60 or risk['crisis_probability'] > 50:
-            gross, net, lev, hdg, csh = 80.0, -20.0, 0.8, 30.0, 40.0
-            pos, cycle, sec = "Net Short / Defensive", "Contraction", "Utilities"
-        else:
-            gross, net, lev, hdg, csh = 100.0, 10.0, 1.0, 15.0, 25.0
-            pos, cycle, sec = "Market Neutral", "Consolidation", "Dividend Yield"
-            
-        sorted_ev = sorted(all_ev, key=lambda x: x['weight']*x['reliability']*abs(math.log(max(x['likelihood_ratio'], 1e-5))), reverse=True)
-        
+
+                if value is not None:
+                    series.append(
+                        (
+                            float(snapshot.get("_t", 0.0)),
+                            float(value),
+                        )
+                    )
+
+            if series:
+                history[feature] = series
+
+        return history
+
+    def _build_latest_features(
+        self,
+        snapshots: List[Dict[str, Any]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Tuple[
+        Dict[str, Optional[float]],
+        Dict[str, Dict[str, Any]],
+    ]:
+
+        latest: Dict[str, Optional[float]] = {}
+        traces: Dict[str, Dict[str, Any]] = {}
+
+        for feature, aliases in FIELD_CONTRACTS.items():
+
+            series = history.get(feature, [])
+
+            latest_value = (
+                series[-1][1]
+                if series
+                else None
+            )
+
+            latest[feature] = latest_value
+
+            aliases_checked = [
+                alias
+                for alias, _ in aliases
+            ]
+
+            source_field = None
+            raw_value = None
+            multiplier = None
+            invalid = False
+
+            # Find the latest valid source row explicitly.
+            for snapshot in reversed(snapshots):
+
+                for alias, mult in aliases:
+
+                    if alias not in snapshot:
+                        continue
+
+                    raw = _num(snapshot.get(alias))
+
+                    if raw is None:
+                        invalid = True
+                        continue
+
+                    normalized = raw * mult
+
+                    if not math.isfinite(normalized):
+                        invalid = True
+                        continue
+
+                    source_field = alias
+                    raw_value = raw
+                    multiplier = mult
+
+                    break
+
+                if source_field is not None:
+                    break
+
+            if latest_value is not None:
+
+                traces[feature] = {
+                    "status": "used",
+                    "feature": feature,
+                    "source_field": source_field,
+                    "raw_value": self._json_value(raw_value),
+                    "multiplier": self._json_value(multiplier),
+                    "normalized_value": self._round(latest_value),
+                    "historical_points": len(series),
+                    "latest_timestamp": self._round(
+                        series[-1][0]
+                    ),
+                    "aliases_checked": aliases_checked,
+                }
+
+            elif invalid:
+
+                traces[feature] = {
+                    "status": "invalid",
+                    "feature": feature,
+                    "source_field": None,
+                    "raw_value": None,
+                    "multiplier": None,
+                    "normalized_value": None,
+                    "historical_points": 0,
+                    "latest_timestamp": None,
+                    "aliases_checked": aliases_checked,
+                }
+
+            else:
+
+                traces[feature] = {
+                    "status": "missing",
+                    "feature": feature,
+                    "source_field": None,
+                    "raw_value": None,
+                    "multiplier": None,
+                    "normalized_value": None,
+                    "historical_points": 0,
+                    "latest_timestamp": None,
+                    "aliases_checked": aliases_checked,
+                }
+
+        return latest, traces
+
+    # ----------------------------------------------------------------------
+    # COVERAGE
+    # ----------------------------------------------------------------------
+
+    def _build_feature_coverage(
+        self,
+        latest: Dict[str, Optional[float]],
+        traces: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+
+        total = len(FIELD_CONTRACTS)
+
+        used_names = [
+            feature
+            for feature in FIELD_CONTRACTS
+            if traces.get(feature, {}).get("status") == "used"
+        ]
+
+        invalid_names = [
+            feature
+            for feature in FIELD_CONTRACTS
+            if traces.get(feature, {}).get("status") == "invalid"
+        ]
+
+        missing_names = [
+            feature
+            for feature in FIELD_CONTRACTS
+            if traces.get(feature, {}).get("status") == "missing"
+        ]
+
+        available_not_used_names: List[str] = []
+
+        for feature, value in latest.items():
+            if value is not None and feature not in used_names:
+                available_not_used_names.append(feature)
+
+        coverage_pct = (
+            (len(used_names) / total) * 100.0
+            if total
+            else 0.0
+        )
+
+        domain_coverage: Dict[str, Any] = {}
+
+        for domain, features in DOMAIN_FEATURES.items():
+
+            used = [
+                feature
+                for feature in features
+                if feature in used_names
+            ]
+
+            missing = [
+                feature
+                for feature in features
+                if feature not in used_names
+            ]
+
+            domain_total = len(features)
+
+            domain_coverage[domain] = {
+                "total_features": domain_total,
+                "used_features": len(used),
+                "coverage_pct": self._round(
+                    (len(used) / domain_total) * 100.0
+                    if domain_total
+                    else 0.0
+                ),
+                "used_feature_names": used,
+                "missing_feature_names": missing,
+            }
+
         return {
-            "current_market_regime": comp['overall_market_regime'], "market_cycle": cycle, "recommended_positioning": pos,
-            "gross_exposure": gross, "net_exposure": net, "leverage": lev, "hedge_ratio": hdg, "cash_target": csh,
-            "sector_rotation": sec, "tail_risk": "Elevated" if vol['tail_risk'] > 60 else "Contained",
-            "expected_drawdown": np.clip(vol['expected_move'] * 3.0, 0, 40), 
-            "regime_duration_expected": expected_duration_days,
-            "probability_of_transition": trans_prob, "confidence": comp['regime_confidence'],
-            "top_positive_factors": [e['explanation'] for e in sorted_ev if e['polarity'] > 0][:3] or ["None"], 
-            "top_negative_factors": [e['explanation'] for e in sorted_ev if e['polarity'] < 0][:3] or ["None"],
-            "key_risks": ["Systemic Drawdown"] if risk['risk_score'] > 60 else ["Opportunity Cost"], 
-            "key_opportunities": ["Trend Following"] if comp['hmm_forward_bull'] > 60 else ["Mean Reversion"]
+            "coverage_pct": coverage_pct,
+            "summary": {
+                "total_features": total,
+                "used_features": len(used_names),
+                "available_not_used": len(
+                    available_not_used_names
+                ),
+                "missing_features": len(missing_names),
+                "invalid_features": len(invalid_names),
+                "coverage_pct": coverage_pct,
+                "used_feature_names": used_names,
+                "available_not_used_names": available_not_used_names,
+                "missing_feature_names": missing_names,
+                "invalid_feature_names": invalid_names,
+            },
+            "domain_coverage": domain_coverage,
         }
 
-__all__ = ["MarketRegimeAnalyzer", "MarketRegimeAnalysisResult", "BullMarketResult", "BearMarketResult", "SidewaysMarketResult", "VolatilityRegimeResult", "RiskRegimeResult", "CompositeScoreResult", "SummaryResult", "EvidenceItem"]
+    # ----------------------------------------------------------------------
+    # TREND
+    # ----------------------------------------------------------------------
+
+    def _analyze_trend(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        components: List[float] = []
+        evidence: List[EvidenceNode] = []
+
+        close = latest.get("close")
+
+        ema20 = latest.get("ema20")
+        ema50 = latest.get("ema50")
+        ema100 = latest.get("ema100")
+        ema200 = latest.get("ema200")
+
+        if close is not None and ema20 is not None:
+            score = 60.0 if close > ema20 else 40.0
+            components.append(score)
+
+            evidence.append(
+                EvidenceNode(
+                    "trend",
+                    1.0 if score > 50 else -1.0,
+                    0.35,
+                    "Price is above EMA20."
+                    if score > 50
+                    else "Price is below EMA20.",
+                )
+            )
+
+        if (
+            ema20 is not None
+            and ema50 is not None
+        ):
+            score = 65.0 if ema20 > ema50 else 35.0
+            components.append(score)
+
+            evidence.append(
+                EvidenceNode(
+                    "trend",
+                    1.0 if score > 50 else -1.0,
+                    0.40,
+                    "EMA20 is above EMA50."
+                    if score > 50
+                    else "EMA20 is below EMA50.",
+                )
+            )
+
+        if (
+            ema50 is not None
+            and ema100 is not None
+        ):
+            score = 65.0 if ema50 > ema100 else 35.0
+            components.append(score)
+
+        if (
+            ema100 is not None
+            and ema200 is not None
+        ):
+            score = 70.0 if ema100 > ema200 else 30.0
+            components.append(score)
+
+        if (
+            ema50 is not None
+            and ema200 is not None
+            and close is not None
+        ):
+            aligned_bull = (
+                close > ema50 > ema200
+            )
+
+            aligned_bear = (
+                close < ema50 < ema200
+            )
+
+            if aligned_bull:
+                components.append(80.0)
+
+                evidence.append(
+                    EvidenceNode(
+                        "trend",
+                        1.0,
+                        0.75,
+                        "Price and medium/long-term averages show bullish alignment.",
+                    )
+                )
+
+            elif aligned_bear:
+                components.append(20.0)
+
+                evidence.append(
+                    EvidenceNode(
+                        "trend",
+                        -1.0,
+                        0.75,
+                        "Price and medium/long-term averages show bearish alignment.",
+                    )
+                )
+
+        adx = latest.get("adx")
+
+        if adx is not None:
+            adx_strength = _clip(
+                (adx - 10.0) / 30.0,
+                0.0,
+                1.0,
+            )
+
+        else:
+            adx_strength = None
+
+        return20 = latest.get("return_20d")
+        return60 = latest.get("return_60d")
+
+        if return20 is not None:
+            score = _score(
+                return20,
+                neutral=0.0,
+                scale=8.0,
+            )
+
+            components.append(score)
+
+        if return60 is not None:
+            score = _score(
+                return60,
+                neutral=0.0,
+                scale=15.0,
+            )
+
+            components.append(score)
+
+        if not components:
+            return {
+                "value": None,
+                "strength": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        value = sum(components) / len(components)
+
+        if adx_strength is not None:
+            strength = adx_strength * 100.0
+        else:
+            distance = abs(value - 50.0) * 2.0
+            strength = _clip(distance, 0.0, 100.0)
+
+        if value >= 65.0:
+            status = "bullish"
+        elif value <= 35.0:
+            status = "bearish"
+        else:
+            status = "sideways"
+
+        return {
+            "value": value,
+            "strength": strength,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # MOMENTUM
+    # ----------------------------------------------------------------------
+
+    def _analyze_momentum(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        components: List[float] = []
+        evidence: List[EvidenceNode] = []
+
+        rsi = latest.get("rsi")
+
+        if rsi is not None:
+            rsi_score = _score(
+                rsi,
+                neutral=50.0,
+                scale=15.0,
+            )
+
+            components.append(rsi_score)
+
+            if rsi >= 60.0:
+                evidence.append(
+                    EvidenceNode(
+                        "momentum",
+                        1.0,
+                        0.55,
+                        f"RSI momentum is positive ({rsi:.1f}).",
+                    )
+                )
+
+            elif rsi <= 40.0:
+                evidence.append(
+                    EvidenceNode(
+                        "momentum",
+                        -1.0,
+                        0.55,
+                        f"RSI momentum is negative ({rsi:.1f}).",
+                    )
+                )
+
+        macd = latest.get("macd")
+        signal = latest.get("macd_signal")
+        hist = latest.get("macd_hist")
+
+        if macd is not None and signal is not None:
+            spread = macd - signal
+
+            scale = max(
+                abs(macd),
+                abs(signal),
+                1.0,
+            )
+
+            macd_score = _score(
+                spread / scale,
+                neutral=0.0,
+                scale=0.2,
+            )
+
+            components.append(macd_score)
+
+        if hist is not None:
+            hist_score = _score(
+                hist,
+                neutral=0.0,
+                scale=max(abs(hist), 1.0),
+            )
+
+            components.append(hist_score)
+
+        for key in (
+            "return_1d",
+            "return_5d",
+            "return_20d",
+        ):
+            value = latest.get(key)
+
+            if value is not None:
+                components.append(
+                    _score(
+                        value,
+                        neutral=0.0,
+                        scale=8.0
+                        if key != "return_20d"
+                        else 12.0,
+                    )
+                )
+
+        if not components:
+            return {
+                "value": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        value = sum(components) / len(components)
+
+        if value >= 65.0:
+            status = "positive"
+        elif value <= 35.0:
+            status = "negative"
+        else:
+            status = "neutral"
+
+        return {
+            "value": value,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # VOLATILITY
+    # ----------------------------------------------------------------------
+
+    def _analyze_volatility(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        values: List[float] = []
+        evidence: List[EvidenceNode] = []
+
+        atr_pct = latest.get("atr_pct")
+
+        if atr_pct is not None:
+            values.append(
+                _clip(
+                    atr_pct,
+                    0.0,
+                    100.0,
+                )
+            )
+
+        volatility = latest.get("volatility")
+
+        if volatility is not None:
+            values.append(
+                _clip(
+                    volatility,
+                    0.0,
+                    200.0,
+                )
+            )
+
+        vix = latest.get("vix")
+
+        if vix is not None:
+            values.append(
+                _clip(
+                    vix,
+                    0.0,
+                    200.0,
+                )
+            )
+
+        atr = latest.get("atr")
+        close = latest.get("close")
+
+        if (
+            atr is not None
+            and close is not None
+            and close > 0
+            and atr_pct is None
+        ):
+            values.append(
+                _clip(
+                    (atr / close) * 100.0,
+                    0.0,
+                    100.0,
+                )
+            )
+
+        if not values:
+            return {
+                "value": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        raw = sum(values) / len(values)
+
+        # The output is a normalized 0-100 volatility intensity.
+        normalized = _clip(
+            raw * 5.0,
+            0.0,
+            100.0,
+        )
+
+        if normalized < 30.0:
+            status = "low"
+
+            evidence.append(
+                EvidenceNode(
+                    "volatility",
+                    1.0,
+                    0.35,
+                    "Volatility conditions are relatively contained.",
+                )
+            )
+
+        elif normalized > 70.0:
+            status = "high"
+
+            evidence.append(
+                EvidenceNode(
+                    "volatility",
+                    -1.0,
+                    0.65,
+                    "Volatility conditions are elevated.",
+                )
+            )
+
+        else:
+            status = "normal"
+
+        return {
+            "value": normalized,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # PARTICIPATION
+    # ----------------------------------------------------------------------
+
+    def _analyze_participation(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        components: List[float] = []
+        evidence: List[EvidenceNode] = []
+
+        breadth = latest.get("breadth")
+
+        if breadth is not None:
+            if 0.0 <= breadth <= 1.0:
+                breadth *= 100.0
+
+            components.append(
+                _clip(breadth, 0.0, 100.0)
+            )
+
+        ad = latest.get("advance_decline")
+
+        if ad is not None:
+            ad_score = _score(
+                ad,
+                neutral=1.0,
+                scale=0.5,
+            )
+
+            components.append(ad_score)
+
+        advancers = latest.get("advancers")
+        decliners = latest.get("decliners")
+
+        if (
+            advancers is not None
+            and decliners is not None
+            and advancers >= 0
+            and decliners >= 0
+        ):
+            total = advancers + decliners
+
+            if total > 0:
+                breadth_score = (
+                    advancers / total
+                ) * 100.0
+
+                components.append(
+                    breadth_score
+                )
+
+        volume = latest.get("volume")
+        avg_volume = latest.get("avg_volume")
+
+        if (
+            volume is not None
+            and avg_volume is not None
+            and avg_volume > 0
+        ):
+            volume_ratio = volume / avg_volume
+
+            volume_score = _score(
+                volume_ratio,
+                neutral=1.0,
+                scale=0.4,
+            )
+
+            components.append(
+                volume_score
+            )
+
+            if volume_ratio >= 1.5:
+                evidence.append(
+                    EvidenceNode(
+                        "participation",
+                        1.0,
+                        0.45,
+                        "Trading volume is materially above its reference average.",
+                    )
+                )
+
+        new_highs = latest.get("new_highs")
+        new_lows = latest.get("new_lows")
+
+        if (
+            new_highs is not None
+            and new_lows is not None
+            and new_highs >= 0
+            and new_lows >= 0
+        ):
+            total_extremes = new_highs + new_lows
+
+            if total_extremes > 0:
+                high_score = (
+                    new_highs / total_extremes
+                ) * 100.0
+
+                components.append(
+                    high_score
+                )
+
+        institutional = latest.get(
+            "institutional_flow"
+        )
+
+        if institutional is not None:
+            components.append(
+                _score(
+                    institutional,
+                    neutral=0.0,
+                    scale=max(
+                        abs(institutional),
+                        1.0,
+                    ),
+                )
+            )
+
+        if not components:
+            return {
+                "value": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        value = sum(components) / len(components)
+
+        if value >= 65.0:
+            status = "broad"
+            evidence.append(
+                EvidenceNode(
+                    "participation",
+                    1.0,
+                    0.55,
+                    "Market participation is supportive.",
+                )
+            )
+
+        elif value <= 35.0:
+            status = "weak"
+            evidence.append(
+                EvidenceNode(
+                    "participation",
+                    -1.0,
+                    0.55,
+                    "Market participation is weak.",
+                )
+            )
+
+        else:
+            status = "mixed"
+
+        return {
+            "value": value,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # RISK
+    # ----------------------------------------------------------------------
+
+    def _analyze_risk(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        components: List[float] = []
+        evidence: List[EvidenceNode] = []
+
+        beta = latest.get("beta")
+
+        if beta is not None:
+            components.append(
+                _score(
+                    beta,
+                    neutral=1.0,
+                    scale=0.5,
+                    invert=True,
+                )
+            )
+
+        drawdown = latest.get("drawdown")
+
+        if drawdown is not None:
+            dd = abs(drawdown)
+
+            components.append(
+                _score(
+                    dd,
+                    neutral=10.0,
+                    scale=8.0,
+                    invert=True,
+                )
+            )
+
+            if dd >= 20.0:
+                evidence.append(
+                    EvidenceNode(
+                        "risk",
+                        -1.0,
+                        0.65,
+                        f"Current drawdown is elevated ({dd:.1f}%).",
+                    )
+                )
+
+        vix = latest.get("vix")
+
+        if vix is not None:
+            components.append(
+                _score(
+                    vix,
+                    neutral=20.0,
+                    scale=10.0,
+                    invert=True,
+                )
+            )
+
+        pcr = latest.get("put_call_ratio")
+
+        if pcr is not None:
+            components.append(
+                _score(
+                    pcr,
+                    neutral=1.0,
+                    scale=0.5,
+                )
+            )
+
+        volatility = latest.get("volatility")
+
+        if volatility is not None:
+            components.append(
+                _score(
+                    volatility,
+                    neutral=20.0,
+                    scale=15.0,
+                    invert=True,
+                )
+            )
+
+        if not components:
+            return {
+                "value": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        value = sum(components) / len(components)
+
+        if value >= 65.0:
+            status = "controlled"
+        elif value <= 35.0:
+            status = "elevated"
+        else:
+            status = "moderate"
+
+        return {
+            "value": value,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # TRANSITION
+    # ----------------------------------------------------------------------
+
+    def _analyze_transition(
+        self,
+        latest: Dict[str, Optional[float]],
+        history: Dict[str, List[Tuple[float, float]]],
+    ) -> Dict[str, Any]:
+
+        evidence: List[EvidenceNode] = []
+
+        directional_changes: List[float] = []
+
+        for feature in (
+            "return_20d",
+            "return_60d",
+            "rsi",
+            "adx",
+        ):
+
+            series = history.get(feature, [])
+
+            if len(series) < 2:
+                continue
+
+            previous = series[-2][1]
+            current = series[-1][1]
+
+            if feature == "rsi":
+                delta = current - previous
+                directional_changes.append(
+                    _clip(delta / 10.0, -1.0, 1.0)
+                )
+
+            elif feature == "adx":
+                delta = current - previous
+                directional_changes.append(
+                    _clip(delta / 10.0, -1.0, 1.0)
+                )
+
+            else:
+                delta = current - previous
+                directional_changes.append(
+                    _clip(delta / 10.0, -1.0, 1.0)
+                )
+
+        if not directional_changes:
+            return {
+                "value": None,
+                "status": "unknown",
+                "evidence": [],
+            }
+
+        average_change = sum(
+            directional_changes
+        ) / len(directional_changes)
+
+        transition_score = (
+            abs(average_change) * 100.0
+        )
+
+        # Determine actual structural transition from opposing
+        # short/long directional information when available.
+        return20 = latest.get("return_20d")
+        return60 = latest.get("return_60d")
+
+        if (
+            return20 is not None
+            and return60 is not None
+        ):
+            signs_conflict = (
+                return20 > 0
+                and return60 < 0
+            ) or (
+                return20 < 0
+                and return60 > 0
+            )
+
+            if signs_conflict:
+                transition_score = max(
+                    transition_score,
+                    70.0,
+                )
+
+                evidence.append(
+                    EvidenceNode(
+                        "transition",
+                        -1.0,
+                        0.70,
+                        "Shorter- and longer-horizon returns are directionally divergent, indicating a potential regime transition.",
+                    )
+                )
+
+        if transition_score >= 65.0:
+            status = "transitioning"
+
+        elif transition_score >= 35.0:
+            status = "watch"
+
+        else:
+            status = "stable"
+
+        return {
+            "value": transition_score,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # REGIME
+    # ----------------------------------------------------------------------
+
+    def _detect_regime(
+        self,
+        trend: Dict[str, Any],
+        momentum: Dict[str, Any],
+        volatility: Dict[str, Any],
+        participation: Dict[str, Any],
+        risk: Dict[str, Any],
+        transition: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        trend_value = trend.get("value")
+        momentum_value = momentum.get("value")
+        participation_value = participation.get(
+            "value"
+        )
+        risk_value = risk.get("value")
+        transition_value = transition.get(
+            "value"
+        )
+
+        available = [
+            value
+            for value in (
+                trend_value,
+                momentum_value,
+                participation_value,
+                risk_value,
+            )
+            if value is not None
+        ]
+
+        if not available:
+            return {
+                "regime": None,
+                "regime_status": "insufficient_data",
+                "regime_score": None,
+                "evidence": [],
+            }
+
+        components: List[float] = []
+
+        if trend_value is not None:
+            components.append(
+                trend_value * 0.40
+            )
+
+        if momentum_value is not None:
+            components.append(
+                momentum_value * 0.25
+            )
+
+        if participation_value is not None:
+            components.append(
+                participation_value * 0.20
+            )
+
+        if risk_value is not None:
+            components.append(
+                risk_value * 0.15
+            )
+
+        total_weight = 0.0
+
+        if trend_value is not None:
+            total_weight += 0.40
+
+        if momentum_value is not None:
+            total_weight += 0.25
+
+        if participation_value is not None:
+            total_weight += 0.20
+
+        if risk_value is not None:
+            total_weight += 0.15
+
+        if total_weight <= 0:
+            return {
+                "regime": None,
+                "regime_status": "insufficient_data",
+                "regime_score": None,
+                "evidence": [],
+            }
+
+        regime_score = (
+            sum(components) / total_weight
+        )
+
+        evidence: List[EvidenceNode] = []
+
+        # Transition takes precedence when structural evidence exists.
+        if (
+            transition_value is not None
+            and transition_value >= 65.0
+        ):
+            status = "transition"
+
+            evidence.append(
+                EvidenceNode(
+                    "regime",
+                    0.0,
+                    0.75,
+                    "Market structure contains sufficient directional divergence to classify the regime as transitioning.",
+                )
+            )
+
+        elif regime_score >= 65.0:
+            status = "bull"
+
+            evidence.append(
+                EvidenceNode(
+                    "regime",
+                    1.0,
+                    _clip(
+                        (regime_score - 50.0) / 50.0,
+                        0.2,
+                        1.0,
+                    ),
+                    "Aggregate market conditions are directionally bullish.",
+                )
+            )
+
+        elif regime_score <= 35.0:
+            status = "bear"
+
+            evidence.append(
+                EvidenceNode(
+                    "regime",
+                    -1.0,
+                    _clip(
+                        (50.0 - regime_score) / 50.0,
+                        0.2,
+                        1.0,
+                    ),
+                    "Aggregate market conditions are directionally bearish.",
+                )
+            )
+
+        else:
+            status = "sideways"
+
+            evidence.append(
+                EvidenceNode(
+                    "regime",
+                    0.0,
+                    0.40,
+                    "Aggregate market conditions do not show sufficient directional dominance for a bull or bear regime.",
+                )
+            )
+
+        return {
+            "regime": regime_score,
+            "regime_status": status,
+            "regime_score": regime_score,
+            "evidence": evidence,
+        }
+
+    # ----------------------------------------------------------------------
+    # CONFIDENCE
+    # ----------------------------------------------------------------------
+
+    def _calculate_confidence(
+        self,
+        snapshots: List[Dict[str, Any]],
+        coverage: Dict[str, Any],
+        trend: Dict[str, Any],
+        momentum: Dict[str, Any],
+        volatility: Dict[str, Any],
+        participation: Dict[str, Any],
+        risk: Dict[str, Any],
+        transition: Dict[str, Any],
+        evidence: List[Dict[str, Any]],
+    ) -> float:
+
+        coverage_pct = coverage["coverage_pct"]
+
+        domain_values = [
+            trend.get("value"),
+            momentum.get("value"),
+            volatility.get("value"),
+            participation.get("value"),
+            risk.get("value"),
+            transition.get("value"),
+        ]
+
+        domain_count = sum(
+            value is not None
+            for value in domain_values
+        )
+
+        domain_coverage = (
+            domain_count / 6.0
+        )
+
+        unique_dates = len(
+            {
+                snapshot.get("_t")
+                for snapshot in snapshots
+                if snapshot.get("_t", 0.0) > 0
+            }
+        )
+
+        history_score = _clip(
+            unique_dates / 5.0,
+            0.0,
+            1.0,
+        )
+
+        evidence_score = _clip(
+            len(evidence) / 10.0,
+            0.0,
+            1.0,
+        )
+
+        confidence = (
+            (coverage_pct * 0.45)
+            + (domain_coverage * 30.0)
+            + (history_score * 15.0)
+            + (evidence_score * 10.0)
+        )
+
+        contradictions = sum(
+            1
+            for item in evidence
+            if "contradiction" in str(
+                item.get("message", "")
+            ).lower()
+        )
+
+        confidence -= contradictions * 8.0
+
+        return _clip(
+            confidence,
+            0.0,
+            100.0,
+        )
+
+    # ----------------------------------------------------------------------
+    # EVIDENCE
+    # ----------------------------------------------------------------------
+
+    def _format_evidence(
+        self,
+        nodes: List[EvidenceNode],
+    ) -> List[Dict[str, Any]]:
+
+        output: List[Dict[str, Any]] = []
+        seen = set()
+
+        for node in nodes:
+
+            message = str(node.message)
+
+            if message in seen:
+                continue
+
+            seen.add(message)
+
+            magnitude = _clip(
+                node.magnitude,
+                0.0,
+                1.0,
+            )
+
+            reliability = _clip(
+                0.70 + (
+                    magnitude * 0.30
+                ),
+                0.0,
+                1.0,
+            )
+
+            likelihood_ratio = _likelihood_ratio(
+                magnitude,
+                node.direction,
+            )
+
+            output.append(
+                {
+                    "category": "Regime",
+                    "domain": str(node.domain),
+                    "message": message,
+                    "reliability": self._round(
+                        reliability
+                    ),
+                    "likelihood_ratio": self._round(
+                        likelihood_ratio
+                    ),
+                }
+            )
+
+        output.sort(
+            key=lambda item: abs(
+                float(
+                    item.get(
+                        "likelihood_ratio",
+                        1.0,
+                    )
+                ) - 1.0
+            ),
+            reverse=True,
+        )
+
+        return output
+
+    # ----------------------------------------------------------------------
+    # JSON SAFETY
+    # ----------------------------------------------------------------------
+
+    def _json_value(
+        self,
+        value: Any,
+    ) -> Any:
+
+        if value is None:
+            return None
+
+        number = _num(value)
+
+        if number is not None:
+            return self._round(number)
+
+        if isinstance(value, (str, int, float, bool)):
+            return value
+
+        return str(value)
+
+    def _round(
+        self,
+        value: Any,
+    ) -> Optional[float]:
+
+        number = _num(value)
+
+        if number is None:
+            return None
+
+        return round(number, 4)
+
+
+# ============================================================================
+# MODULE LEVEL PUBLIC API
+# ============================================================================
+
+def analyze(
+    data: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+
+    return MarketRegimeAnalyzer().analyze(
+        data,
+        *args,
+        **kwargs,
+    )
+
+
+__all__ = [
+    "MarketRegimeAnalyzer",
+    "analyze",
+]

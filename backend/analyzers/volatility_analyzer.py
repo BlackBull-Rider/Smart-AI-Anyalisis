@@ -1,453 +1,401 @@
-import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Optional
+"""
+GREEN BULL RIDER V6
+Layer-2 Quantitative Analyzer: Volatility & Regime Engine
 
-logger = logging.getLogger(__name__)
+This module implements institutional-grade quantitative volatility intelligence.
+It respects exact Layer-1 database provenance, avoids look-ahead bias, and extracts
+multi-dimensional volatility intelligence (expansion, compression, risk, breakouts)
+solely from explicitly provided feature snapshots.
 
-# ==============================================================================
-# CONFIGURATION & CONSTANTS
-# ==============================================================================
+No database calls. No history synthesis. No look-ahead bias.
+"""
 
-EPSILON = 1e-9
-
-VOLATILITY_CONFIG = {
-    "lookbacks": {
-        "micro": 5,
-        "short": 10,
-        "medium": 20,
-        "long": 50,
-        "macro": 252  # 252 for institutional rolling percentiles / z-scores
-    },
-    "thresholds": {
-        "extreme_high_percentile": 90.0,
-        "high_percentile": 75.0,
-        "low_percentile": 25.0,
-        "extreme_low_percentile": 10.0,
-        "contraction_ratio": 0.5,
-        "expansion_ratio": 1.5,
-        "atr_spike_mult": 2.0
-    }
-}
-
-# ==============================================================================
-# TYPE DEFINITIONS
-# ==============================================================================
-
-class EvidenceItem(TypedDict):
-    type: str
-    weight: float
-    value: str
-    polarity: int  # 1 for Expansion/High, -1 for Contraction/Low, 0 for Neutral
-
-class VolatilityStateResult(TypedDict):
-    regime: str
-    score: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class ContractionExpansionResult(TypedDict):
-    phase: str
-    intensity: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class SqueezeResult(TypedDict):
-    is_squeezing: bool
-    squeeze_score: float
-    duration: int
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class BreakoutProbabilityResult(TypedDict):
-    probability: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class AdvancedVolatilityMetrics(TypedDict):
-    efficiency_ratio: float
-    atr_percentile: float
-    regime_persistence: int
-    atr_z_score: float
-    realized_vol_ratio: float
-    gap_frequency: int
-    volatility_clustering: float
-
-class VolatilityAnalysisResult(TypedDict):
-    state: VolatilityStateResult
-    cycle: ContractionExpansionResult
-    squeeze: SqueezeResult
-    breakout: BreakoutProbabilityResult
-    advanced_metrics: AdvancedVolatilityMetrics
-
-# ==============================================================================
-# VOLATILITY ANALYZER ENGINE
-# ==============================================================================
+import math
+from typing import Dict, Any, Optional
 
 class VolatilityAnalyzer:
     """
-    Institutional Volatility Analyzer.
-    Evaluates volatility regimes, contraction/expansion cycles, squeeze setups,
-    and advanced institutional metrics (Gaps, Clustering, Z-Scores).
-    Strictly Layer-2 compliant (Zero indicator calculation).
+    Evaluates market volatility conditions, breakout probability, and regime stability
+    using a strictly provided dictionary of Layer-1 statistical features.
     """
+    
+    def analyze(self, features: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Executes the quantitative volatility analysis engine based on a feature snapshot.
+        """
+        # =====================================================================
+        # 0. STRICT OUTPUT CONTRACT FALLBACK
+        # =====================================================================
+        fallback = {
+            "volatility_analyzer": {
+                "confidence": 0.0,
+                "risk": 0.0,
+                "risk_status": "low",
+                "atr": 0.0,
+                "atr_status": "contraction",
+                "expansion": 0.0,
+                "expansion_status": "low",
+                "compression": 0.0,
+                "compression_status": "weak",
+                "breakout": 0.0,
+                "breakout_status": "false",
+                "historical": 0.0,
+                "historical_status": "stable",
+                "volatility_quality": 0.0,
+                "volatility_quality_status": "erratic",
+                "evidence": [
+                    {
+                        "category": "Volatility",
+                        "message": "Insufficient valid feature data for quantitative volatility analysis.",
+                        "reliability": 0.0,
+                        "likelihood_ratio": 1.0
+                    }
+                ]
+            }
+        }
 
-    # ==========================================================
-    # EXPLICIT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
-    # ==========================================================
-    EXPECTED_SCHEMA = ['atr_14', 'bbw_20_2.0', 'hv_21', 'sqz_20', 'ei_14', 'chop_14']
+        if not features or not isinstance(features, dict):
+            return fallback
 
-    def __init__(self):
-        self.req_cols = [
-            'open', 'high', 'low', 'close', 'volume', 'atr_14'
+        # =====================================================================
+        # 1. FEATURE UNIVERSE DEFINITION & PROVENANCE TRACING
+        # =====================================================================
+        UNIVERSE = [
+            'atr', 'atr_14', 'tr', 'true_range', 'natr', 'natr_14', 'historical_volatility', 
+            'hv', 'hv_21', 'std', 'std_20', 'variance', 'var_20', 'volatility_ratio',
+            'bb_upper', 'bb_middle', 'bb_lower', 'bb_width', 'bb_percent_b', 'bb_squeeze', 
+            'bb_sqz_mom', 'keltner_upper', 'keltner_middle', 'keltner_lower', 'donchian_upper', 
+            'donchian_middle', 'donchian_lower', 'atr_percentile', 'expansion_index', 
+            'volatility_osc', 'adaptive_atr', 'atr_stop_dist', 'volatility_regime', 
+            'compression', 'expansion', 'parkinson_vol', 'garman_klass', 'rogers_satchell', 
+            'yang_zhang', 'choppiness', 'vhf', 'standard_error', 'rei', 'ulcer_index', 
+            'chaikin_volatility', 'chaikin_vol', 'adx', 'di_plus', 'di_minus', 'supertrend', 
+            'close', 'high', 'low', 'open'
         ]
-        self.opt_cols = [
-            'bbw_20_2.0', 'hv_21', 'sqz_20', 'ei_14', 'chop_14'
-        ]
-        self._feature_cache: Dict[str, Optional[str]] = {}
 
-    def _get_cached_col(self, df: pd.DataFrame, key: str) -> Optional[str]:
-        """O(1) cached lookup for dynamic indicator columns."""
-        if key not in self._feature_cache:
-            self._feature_cache[key] = next((c for c in df.columns if key in c.lower()), None)
-        return self._feature_cache[key]
-
-    def _validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Strict validation. Raises ValueError on missing critical data."""
-        missing = [col for col in self.req_cols if col not in df.columns]
-        if missing:
-            logger.error(f"VolatilityAnalyzer missing critical columns: {missing}")
-            raise ValueError(f"VolatilityAnalyzer requires missing columns: {missing}")
-            
-        min_len = VOLATILITY_CONFIG["lookbacks"]["long"]
-        if len(df) < min_len:
-            raise ValueError(f"VolatilityAnalyzer requires at least {min_len} bars, got {len(df)}.")
-
-        working_df = df.copy()
-
-        num_cols = working_df.select_dtypes(include=[np.number]).columns
-        if np.isinf(working_df[num_cols]).any().any():
-            working_df[num_cols] = working_df[num_cols].replace([np.inf, -np.inf], np.nan)
-
-        if working_df[self.req_cols].isna().any().any():
-            working_df[self.req_cols] = working_df[self.req_cols].ffill().bfill()
-            
-        if working_df[self.req_cols].isna().any().any():
-            raise ValueError("Critical volatility columns contain unresolvable NaNs.")
-            
-        return working_df
-
-    def analyze(self, df: pd.DataFrame) -> VolatilityAnalysisResult:
-        safe_df = self._validate_data(df)
-        
-        # Optimize memory by slicing only the maximum required lookback window
-        eval_len = VOLATILITY_CONFIG["lookbacks"]["macro"]
-        working_df = safe_df.tail(min(len(safe_df), eval_len))
-
-        adv_metrics = self._analyze_advanced_metrics(working_df)
-        state = self._analyze_state(working_df, adv_metrics)
-        cycle = self._analyze_cycle(working_df)
-        squeeze = self._analyze_squeeze(working_df, adv_metrics)
-        breakout = self._analyze_breakout(state, cycle, squeeze, adv_metrics)
-
-        return {
-            "state": state,
-            "cycle": cycle,
-            "squeeze": squeeze,
-            "breakout": breakout,
-            "advanced_metrics": adv_metrics
+        ALLOW_NEG = {
+            'bb_percent_b', 'bb_sqz_mom', 'expansion_index', 'volatility_osc',
+            'rei', 'chaikin_volatility', 'chaikin_vol', 'di_minus', 'di_plus'
         }
 
-    # --------------------------------------------------------------------------
-    # 1. ADVANCED VOLATILITY METRICS (Processed First for Dependencies)
-    # --------------------------------------------------------------------------
-    def _analyze_advanced_metrics(self, df: pd.DataFrame) -> AdvancedVolatilityMetrics:
-        latest = df.iloc[-1]
-        macro_len = VOLATILITY_CONFIG["lookbacks"]["macro"]
-        short_len = VOLATILITY_CONFIG["lookbacks"]["short"]
-        
-        recent_macro = df.tail(macro_len)
-        recent_short = df.tail(short_len)
-        
-        # 1. Rolling ATR Percentile (252 bars for institutional stability)
-        atr_rank = (recent_macro['atr_14'].rank(pct=True).iloc[-1]) * 100.0
-        
-        # 2. Kaufman Efficiency Ratio (ER)
-        net_change = abs(latest['close'] - recent_short['close'].iloc[0])
-        sum_abs_change = recent_short['close'].diff().abs().sum()
-        efficiency_ratio = net_change / (sum_abs_change + EPSILON)
-        
-        # 3. ATR Z-Score
-        atr_mean = recent_macro['atr_14'].mean()
-        atr_std = recent_macro['atr_14'].std() + EPSILON
-        atr_z = (latest['atr_14'] - atr_mean) / atr_std
-        
-        # 4. Volatility Regime Persistence (Days in current low/high state)
-        if atr_rank < 25.0:
-            threshold = recent_macro['atr_14'].quantile(0.25)
-            persistence = (recent_macro['atr_14'] < threshold).iloc[::-1].cummin().sum()
-        elif atr_rank > 75.0:
-            threshold = recent_macro['atr_14'].quantile(0.75)
-            persistence = (recent_macro['atr_14'] > threshold).iloc[::-1].cummin().sum()
-        else:
-            persistence = 0
-
-        # 5. Realized Volatility Ratio (ATR Proxy vs Historical Volatility)
-        rvr = 1.0
-        hv_col = self._get_cached_col(df, 'hv_')
-        if hv_col and pd.notna(latest[hv_col]) and latest[hv_col] > 0:
-            annualized_atr_pct = (latest['atr_14'] / latest['close']) * np.sqrt(252) * 100.0
-            rvr = annualized_atr_pct / (latest[hv_col] + EPSILON)
-            
-        # 6. Gap Volatility (Frequency of ATR-significant gaps)
-        gaps = (df['open'] - df['close'].shift(1)).abs()
-        gap_threshold = df['atr_14'].shift(1) * 0.5
-        gap_freq = (gaps > gap_threshold).tail(20).sum()
-        
-        # 7. Volatility Clustering (Autocorrelation of ATR returns)
-        atr_returns = recent_macro['atr_14'].pct_change().dropna()
-        clustering_score = atr_returns.autocorr(lag=1) if len(atr_returns) > 2 else 0.0
-
-        return {
-            "efficiency_ratio": round(efficiency_ratio, 3),
-            "atr_percentile": round(atr_rank, 2),
-            "regime_persistence": int(persistence),
-            "atr_z_score": round(atr_z, 2),
-            "realized_vol_ratio": round(rvr, 2),
-            "gap_frequency": int(gap_freq),
-            "volatility_clustering": round(clustering_score, 2)
+        trace = {
+            "used": 0,
+            "unavailable": 0,
+            "invalid": 0,
+            "total": len(UNIVERSE)
         }
-
-    # --------------------------------------------------------------------------
-    # 2. VOLATILITY STATE / REGIME
-    # --------------------------------------------------------------------------
-    def _analyze_state(self, df: pd.DataFrame, adv: AdvancedVolatilityMetrics) -> VolatilityStateResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        max_confidence = 40.0 # Base conf for ATR
-        confidence_points = 40.0 
         
-        latest = df.iloc[-1]
-        
-        # ATR Rank Evaluation (Stable 252-bar rolling)
-        atr_rank = adv['atr_percentile']
-        if atr_rank > VOLATILITY_CONFIG["thresholds"]["extreme_high_percentile"]:
-            score += 40.0
-            evidence.append({"type": "ATR_Rank", "weight": 40.0, "value": f"Extreme Volatility (Rank: {atr_rank:.1f}%)", "polarity": 1})
-        elif atr_rank < VOLATILITY_CONFIG["thresholds"]["extreme_low_percentile"]:
-            score -= 40.0
-            evidence.append({"type": "ATR_Rank", "weight": 40.0, "value": f"Volatility Collapse (Rank: {atr_rank:.1f}%)", "polarity": -1})
-        else:
-            evidence.append({"type": "ATR_Rank", "weight": 40.0, "value": f"Normal Range (Rank: {atr_rank:.1f}%)", "polarity": 0})
+        validated = {}
 
-        # Historical Volatility Integration
-        max_confidence += 30.0
-        hv_col = self._get_cached_col(df, 'hv_')
-        if hv_col and pd.notna(latest[hv_col]):
-            confidence_points += 30.0
-            hv_rank = (df[hv_col].tail(252).rank(pct=True).iloc[-1]) * 100.0
-            if hv_rank > 75.0:
-                score += 30.0
-                evidence.append({"type": "HV_Rank", "weight": 30.0, "value": "High Annualized Volatility", "polarity": 1})
-            elif hv_rank < 25.0:
-                score -= 30.0
-                evidence.append({"type": "HV_Rank", "weight": 30.0, "value": "Low Annualized Volatility", "polarity": -1})
-
-        # Efficiency Ratio Analysis (Replaced Noise Ratio)
-        max_confidence += 30.0
-        confidence_points += 30.0
-        er = adv['efficiency_ratio']
-        if er > 0.7:
-            score -= 30.0
-            evidence.append({"type": "Efficiency", "weight": 30.0, "value": f"Highly Efficient Move (ER: {er:.2f})", "polarity": -1})
-        elif er < 0.3:
-            score += 30.0
-            evidence.append({"type": "Efficiency", "weight": 30.0, "value": f"Choppy/Inefficient (ER: {er:.2f})", "polarity": 1})
-
-        norm_score = np.clip(score, -100.0, 100.0)
-        
-        if norm_score >= 60: regime = "Extreme High Volatility"
-        elif norm_score >= 20: regime = "High Volatility"
-        elif norm_score > -20: regime = "Normal Volatility"
-        elif norm_score > -60: regime = "Low Volatility / Compression"
-        else: regime = "Extreme Volatility Collapse"
-
-        # Evidence-based confidence
-        target_pol = 1 if norm_score > 0 else -1 if norm_score < 0 else 0
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == target_pol or e['polarity'] == 0)
-        signal_clarity = (aligned_w / max_confidence) if max_confidence > 0 else 0.0
-        data_quality = (confidence_points / max_confidence) if max_confidence > 0 else 0.0
-        
-        final_confidence = np.clip((signal_clarity * 0.7 + data_quality * 0.3) * 100.0, 0.0, 100.0)
-
-        return {
-            "regime": regime,
-            "score": round(norm_score, 2),
-            "confidence": round(final_confidence, 2),
-            "evidence": evidence
-        }
-
-    # --------------------------------------------------------------------------
-    # 3. CONTRACTION / EXPANSION CYCLE
-    # --------------------------------------------------------------------------
-    def _analyze_cycle(self, df: pd.DataFrame) -> ContractionExpansionResult:
-        evidence: List[EvidenceItem] = []
-        intensity = 0.0
-        max_conf = 0.0
-        actual_conf = 0.0
-        
-        latest = df.iloc[-1]
-        
-        # ATR Slope Analysis
-        max_conf += 50.0
-        recent_atr = df['atr_14'].tail(VOLATILITY_CONFIG["lookbacks"]["short"])
-        if len(recent_atr) > 1:
-            actual_conf += 50.0
-            atr_slope = recent_atr.diff().mean()
-            atr_sma = df['atr_14'].mean()
-            normalized_slope = (atr_slope / (atr_sma + EPSILON)) * 100.0
+        # Phase 1: Sanitize, Validate, and Trace Coverage
+        for key in UNIVERSE:
+            if key not in features:
+                trace["unavailable"] += 1
+                continue
             
-            if normalized_slope > 2.0:
-                intensity += 50.0
-                evidence.append({"type": "ATR_Slope", "weight": 50.0, "value": "ATR Expanding Rapidly", "polarity": 1})
-            elif normalized_slope < -2.0:
-                intensity -= 50.0
-                evidence.append({"type": "ATR_Slope", "weight": 50.0, "value": "ATR Contracting Rapidly", "polarity": -1})
-
-        # BB Width / Expansion Index Integration
-        max_conf += 50.0
-        bbw_col = self._get_cached_col(df, 'bbw')
-        ei_col = self._get_cached_col(df, 'ei_')
-        
-        if bbw_col and pd.notna(latest[bbw_col]):
-            actual_conf += 50.0
-            bbw_slope = df[bbw_col].tail(5).diff().mean()
-            if bbw_slope > 0:
-                intensity += 50.0
-                evidence.append({"type": "BB_Width", "weight": 50.0, "value": "Bands Expanding", "polarity": 1})
-            elif bbw_slope < 0:
-                intensity -= 50.0
-                evidence.append({"type": "BB_Width", "weight": 50.0, "value": "Bands Contracting", "polarity": -1})
-        elif ei_col and pd.notna(latest[ei_col]):
-            actual_conf += 50.0
-            if latest[ei_col] > 0:
-                intensity += 50.0
-                evidence.append({"type": "Expansion_Index", "weight": 50.0, "value": "Volatility Expanding", "polarity": 1})
-            else:
-                intensity -= 50.0
-                evidence.append({"type": "Expansion_Index", "weight": 50.0, "value": "Volatility Contracting", "polarity": -1})
-
-        norm_intensity = np.clip(intensity, -100.0, 100.0)
-        
-        if norm_intensity >= 60: phase = "Aggressive Expansion"
-        elif norm_intensity >= 20: phase = "Expansion"
-        elif norm_intensity > -20: phase = "Equilibrium"
-        elif norm_intensity > -60: phase = "Contraction"
-        else: phase = "Aggressive Contraction"
-
-        confidence = (actual_conf / max_conf * 100.0) if max_conf > 0 else 0.0
-
-        return {
-            "phase": phase,
-            "intensity": round(norm_intensity, 2),
-            "confidence": round(confidence, 2),
-            "evidence": evidence
-        }
-
-    # --------------------------------------------------------------------------
-    # 4. SQUEEZE DETECTION
-    # --------------------------------------------------------------------------
-    def _analyze_squeeze(self, df: pd.DataFrame, adv: AdvancedVolatilityMetrics) -> SqueezeResult:
-        evidence: List[EvidenceItem] = []
-        is_squeezing = False
-        duration = 0
-        score = 0.0
-        confidence = 100.0
-        
-        sqz_col = self._get_cached_col(df, 'sqz')
-        
-        if sqz_col and pd.notna(df[sqz_col].iloc[-1]):
-            # Valid Layer-2 Data usage
-            sqz_series = df[sqz_col].tail(VOLATILITY_CONFIG["lookbacks"]["medium"])
-            is_squeezing = bool(sqz_series.iloc[-1])
-            
-            if is_squeezing:
-                for val in reversed(sqz_series.values):
-                    if val: duration += 1
-                    else: break
+            val = features.get(key)
+            if val is None:
+                trace["unavailable"] += 1
+                continue
                 
-                score = min((duration / 10.0) * 100.0, 100.0)
-                evidence.append({"type": "Squeeze_Indicator", "weight": 100.0, "value": f"Active Squeeze ({duration} bars)", "polarity": -1})
+            try:
+                f = float(val)
+                if math.isnan(f) or math.isinf(f):
+                    trace["invalid"] += 1
+                    continue
+                if f < 0 and key not in ALLOW_NEG:
+                    trace["invalid"] += 1
+                    continue
+                    
+                validated[key] = f
+                trace["used"] += 1
+            except (ValueError, TypeError):
+                trace["invalid"] += 1
+
+        if trace["used"] == 0:
+            return fallback
+
+        def get_val(key: str) -> Optional[float]:
+            return validated.get(key)
+
+        def bounded_map(val: float, min_in: float, max_in: float) -> float:
+            if val <= min_in: return 0.0
+            if val >= max_in: return 100.0
+            if max_in == min_in: return 0.0
+            return ((val - min_in) / (max_in - min_in)) * 100.0
+
+        def safe_tanh_map(val: float, scale: float = 1.0) -> float:
+            return math.tanh(val * scale) * 100.0
+
+        # =====================================================================
+        # 2. FEATURE EXTRACTION
+        # =====================================================================
+        # Scalars
+        c_close = get_val('close')
+        
+        # Volatility core
+        atr_pct = get_val('atr_percentile')
+        vol_ratio = get_val('volatility_ratio')
+        natr = get_val('natr') or get_val('natr_14')
+        
+        # Bands & Channels
+        bb_u = get_val('bb_upper')
+        bb_l = get_val('bb_lower')
+        kc_u = get_val('keltner_upper')
+        kc_l = get_val('keltner_lower')
+        dc_u = get_val('donchian_upper')
+        dc_l = get_val('donchian_lower')
+        bb_width = get_val('bb_width')
+        
+        # Market context
+        bb_sqz_mom = get_val('bb_sqz_mom')
+        exp_idx = get_val('expansion_index')
+        vol_osc = get_val('volatility_osc')
+        adx = get_val('adx')
+        chop = get_val('choppiness')
+        ulcer = get_val('ulcer_index')
+        
+        # Explicit classifications
+        metric_comp = get_val('compression')
+        metric_exp = get_val('expansion')
+
+        # =====================================================================
+        # 3. REGIME ENGINE (COMPRESSION / EXPANSION)
+        # =====================================================================
+        comp_signals = []
+        exp_signals = []
+
+        # A. BB / Keltner Relationship (Structural Squeeze)
+        if bb_u is not None and bb_l is not None and kc_u is not None and kc_l is not None:
+            # Squeeze is active if BB is entirely inside Keltner
+            if bb_u < kc_u and bb_l > kc_l:
+                comp_signals.append(100.0)
+                exp_signals.append(0.0)
             else:
-                evidence.append({"type": "Squeeze_Indicator", "weight": 100.0, "value": "No Active Squeeze", "polarity": 0})
+                comp_signals.append(0.0)
+                # Expansion magnitude based on how far BB has breached Keltner
+                bb_range = bb_u - bb_l
+                kc_range = kc_u - kc_l
+                if kc_range > 0 and bb_range > kc_range:
+                    exp_signals.append(bounded_map(bb_range / kc_range, 1.0, 1.5))
+
+        # B. ATR Percentile & Ratio (Distribution state)
+        if atr_pct is not None:
+            # Safeguard scale: 0-100 or 0-1
+            ap_val = atr_pct * 100.0 if atr_pct <= 1.0 and atr_pct > 0.0 else atr_pct
+            ap_val = max(0.0, min(100.0, ap_val))
+            comp_signals.append(100.0 - ap_val)
+            exp_signals.append(ap_val)
+
+        if vol_ratio is not None:
+            comp_signals.append(bounded_map(1.0 - vol_ratio, 0.0, 0.5))
+            exp_signals.append(bounded_map(vol_ratio, 1.0, 1.5))
+
+        # C. Explicit Features
+        if exp_idx is not None:
+            exp_signals.append(max(0.0, safe_tanh_map(exp_idx, 0.1)))
+        if vol_osc is not None:
+            if vol_osc > 0:
+                exp_signals.append(bounded_map(vol_osc, 0.0, 50.0))
+            else:
+                comp_signals.append(bounded_map(abs(vol_osc), 0.0, 50.0))
+
+        if metric_comp is not None:
+            comp_signals.append(bounded_map(metric_comp, 0.0, 100.0 if metric_comp > 1.0 else 1.0))
+        if metric_exp is not None:
+            exp_signals.append(bounded_map(metric_exp, 0.0, 100.0 if metric_exp > 1.0 else 1.0))
+
+        comp_score = sum(comp_signals) / len(comp_signals) if comp_signals else 0.0
+        exp_score = sum(exp_signals) / len(exp_signals) if exp_signals else 0.0
+
+        # =====================================================================
+        # 4. CROSS-ESTIMATOR CONSISTENCY ENGINE (QUALITY/STABILITY)
+        # =====================================================================
+        est_keys = [
+            'parkinson_vol', 'garman_klass', 'rogers_satchell', 'yang_zhang', 
+            'historical_volatility', 'hv', 'hv_21', 'std', 'std_20', 'atr_14'
+        ]
+        
+        estimators = [get_val(k) for k in est_keys if get_val(k) is not None and get_val(k) > 0]
+        
+        cv = 0.0  # Coefficient of Variation
+        if len(estimators) >= 2:
+            mean_e = sum(estimators) / len(estimators)
+            var_e = sum((e - mean_e)**2 for e in estimators) / len(estimators)
+            if mean_e > 0:
+                cv = math.sqrt(var_e) / mean_e
+
+        # Historical Stability is a function of estimator convergence + choppiness
+        hist_signals = []
+        if len(estimators) >= 2:
+            # High dispersion (CV > 0.4) = erratic
+            hist_signals.append(100.0 - bounded_map(cv, 0.0, 0.4))
+            
+        if chop is not None:
+            # Choppiness > 61.8 indicates erratic trendless state
+            hist_signals.append(100.0 - bounded_map(chop, 38.2, 61.8))
+            
+        historical = sum(hist_signals) / len(hist_signals) if hist_signals else 50.0
+
+        # =====================================================================
+        # 5. BREAKOUT / EXPANSION FUSION ENGINE
+        # =====================================================================
+        brk_signals = []
+        
+        # Donchian Channel Pressure (Price location relative to extremes)
+        if c_close is not None and dc_u is not None and dc_l is not None:
+            dc_range = dc_u - dc_l
+            if dc_range > 0:
+                dc_loc = (c_close - dc_l) / dc_range
+                # Extremes (near 1 or near 0) imply structural breakout pressure
+                if dc_loc > 0.9 or dc_loc < 0.1:
+                    brk_signals.append(100.0)
+                else:
+                    brk_signals.append(bounded_map(abs(dc_loc - 0.5), 0.25, 0.45))
+
+        # ADX trend strength confirmation
+        if adx is not None:
+            brk_signals.append(bounded_map(adx, 20.0, 40.0))
+
+        # Bollinger Squeeze Momentum Release
+        if bb_sqz_mom is not None:
+            brk_signals.append(bounded_map(abs(bb_sqz_mom), 0.0, 0.5))
+            
+        # Base expansion contribution
+        brk_signals.append(exp_score)
+
+        breakout = sum(brk_signals) / len(brk_signals) if brk_signals else 0.0
+
+        # =====================================================================
+        # 6. VOLATILITY RISK ENGINE
+        # =====================================================================
+        risk_signals = []
+        
+        # Market-volatility absolute risk via NATR (e.g. > 4% is very high risk)
+        if natr is not None:
+            risk_signals.append(bounded_map(natr, 0.0, 5.0))
+            
+        # Downside/stress risk
+        if ulcer is not None:
+            risk_signals.append(bounded_map(ulcer, 0.0, 10.0))
+            
+        # Regime risk via expansion magnitude
+        risk_signals.append(exp_score)
+        
+        # Uncertainty risk via estimator dispersion
+        if len(estimators) >= 2:
+            risk_signals.append(bounded_map(cv, 0.1, 0.5))
+
+        risk = sum(risk_signals) / len(risk_signals) if risk_signals else 50.0
+        
+        # Isolated ATR status
+        atr_score = atr_pct if atr_pct is not None else exp_score
+
+        # =====================================================================
+        # 7. QUALITY & CONFIDENCE ENGINE
+        # =====================================================================
+        # Coverage is proportional to total defined universe
+        coverage_ratio = trace["used"] / trace["total"]
+        
+        # Quality: Reflects data density and structural agreement (lack of high CV)
+        quality_raw = (coverage_ratio * 100.0)
+        if len(estimators) >= 2:
+            quality_raw *= (1.0 - bounded_map(cv, 0.2, 1.0)/100.0)
+        quality = min(100.0, max(0.0, quality_raw))
+        
+        # Confidence: Scales up if we have sufficient orthogonal feature groups
+        # We don't demand 100% of 50 features. Having ~15-20 valid orthogonal ones gives 100% confidence.
+        EXPECTED_ROBUST_COUNT = 15.0
+        conf_ratio = min(trace["used"] / EXPECTED_ROBUST_COUNT, 1.0)
+        
+        confidence = conf_ratio * 100.0
+        if cv > 0.5:
+            confidence -= 15.0 # Contradiction penalty
+        confidence = min(100.0, max(0.0, confidence))
+
+        # =====================================================================
+        # 8. STATISTICAL LIKELIHOOD RATIO
+        # =====================================================================
+        # Heuristic probabilistic bounds [0.1, 10.0] derived from overall signal strength
+        # Measures the quantitative intensity of the current state vs neutral.
+        intensity = (exp_score + comp_score + breakout) / 300.0
+        lr_mapped = 1.0
+        if intensity > 0.6:
+            lr_mapped = 1.0 + ((intensity - 0.6) / 0.4) * 9.0 
+        elif intensity < 0.4:
+            lr_mapped = 1.0 - ((0.4 - intensity) / 0.4) * 0.9
+            
+        likelihood_ratio = max(0.1, min(10.0, lr_mapped))
+
+        # =====================================================================
+        # 9. STATUS MAPPING
+        # =====================================================================
+        risk_status = "high" if risk >= 60.0 else "low"
+        atr_status = "expansion" if atr_score >= 50.0 else "contraction"
+        expansion_status = "high" if exp_score >= 60.0 else "low"
+        compression_status = "strong" if comp_score >= 60.0 else "weak"
+        breakout_status = "high" if breakout >= 60.0 else "false"
+        historical_status = "stable" if historical >= 50.0 else "erratic"
+        volatility_quality_status = "stable" if quality >= 50.0 else "erratic"
+
+        # =====================================================================
+        # 10. EVIDENCE GENERATION
+        # =====================================================================
+        evidence = []
+        
+        # Strictly formatted coverage string
+        coverage_msg = f"Used {trace['used']}/{trace['total']} declared volatility features; {trace['unavailable']} unavailable; {trace['invalid']} invalid."
+        evidence.append({
+            "category": "FeatureCoverage",
+            "message": coverage_msg,
+            "reliability": round(confidence / 100.0, 4),
+            "likelihood_ratio": 1.0
+        })
+        
+        # Market Intelligence Analysis String
+        analysis = []
+        if exp_score >= 60.0:
+            analysis.append(f"Volatility regime exhibits structural expansion (Exp Score: {exp_score:.1f}).")
+        elif comp_score >= 60.0:
+            analysis.append(f"Statistically significant structural compression detected (Comp Score: {comp_score:.1f}).")
         else:
-            # High quality proxy utilizing advanced metrics
-            confidence = 70.0 # Proxy reduces data-confidence
-            if adv['atr_percentile'] < 15.0 and adv['atr_z_score'] < -1.5:
-                is_squeezing = True
-                duration = adv['regime_persistence']
-                score = 100.0 - adv['atr_percentile']
-                evidence.append({"type": "Z_Score_Proxy", "weight": 100.0, "value": "Extreme Volatility Collapse (Proxy Squeeze)", "polarity": -1})
-            else:
-                evidence.append({"type": "Z_Score_Proxy", "weight": 100.0, "value": "Insufficient Compression", "polarity": 0})
-
-        return {
-            "is_squeezing": is_squeezing,
-            "squeeze_score": round(score, 2),
-            "duration": duration,
-            "confidence": round(confidence, 2),
-            "evidence": evidence
-        }
-
-    # --------------------------------------------------------------------------
-    # 5. BREAKOUT PROBABILITY (PREDICTIVE, NON-DIRECTIONAL)
-    # --------------------------------------------------------------------------
-    def _analyze_breakout(self, state: VolatilityStateResult, cycle: ContractionExpansionResult, squeeze: SqueezeResult, adv: AdvancedVolatilityMetrics) -> BreakoutProbabilityResult:
-        evidence: List[EvidenceItem] = []
-        prob = 0.0
-        max_weight = 100.0
-        
-        # 1. Squeeze Weight
-        if squeeze['is_squeezing']:
-            bonus = min(squeeze['duration'] * 5.0, 20.0)
-            prob += 30.0 + bonus
-            evidence.append({"type": "Squeeze_Energy", "weight": 50.0, "value": "Squeeze building kinetic energy", "polarity": 1})
+            analysis.append("Volatility regime is structurally neutral.")
             
-        # 2. Cycle Weight (Deep contraction precedes expansion)
-        if cycle['intensity'] < -40.0:
-            prob += 30.0
-            evidence.append({"type": "Cycle_Contraction", "weight": 30.0, "value": "Deep contraction phase", "polarity": 1})
+        if breakout >= 60.0:
+            analysis.append("Band/channel proximity and momentum metrics support developing breakout volatility.")
             
-        # 3. Z-Score Extremes
-        if adv['atr_z_score'] < -2.0:
-            prob += 20.0
-            evidence.append({"type": "Z_Score", "weight": 20.0, "value": "Z-Score heavily compressed", "polarity": 1})
+        if historical < 40.0:
+            analysis.append("Cross-estimator convergence is erratic, indicating transitional or unstable historical pricing.")
+        elif len(estimators) >= 2:
+            analysis.append("Cross-estimator convergence validates historical regime stability.")
+            
+        evidence.append({
+            "category": "Volatility",
+            "message": " ".join(analysis),
+            "reliability": round(confidence / 100.0, 4),
+            "likelihood_ratio": round(likelihood_ratio, 4)
+        })
 
-        prob = np.clip(prob, 5.0, 95.0)
-        
-        # Evidence Alignment Confidence Check
-        # Confidence drops if indicators disagree (e.g. Squeezing but Z-score is high)
-        active_weight = sum(e['weight'] for e in evidence if e['polarity'] == 1)
-        conf = (active_weight / max_weight) * 100.0 if active_weight > 0 else (100.0 if prob < 20 else 50.0)
-
+        # =====================================================================
+        # 11. FINAL OUTPUT ASSEMBLY (EXACT CONTRACT)
+        # =====================================================================
         return {
-            "probability": round(prob, 2),
-            "confidence": round(conf, 2),
-            "evidence": evidence
+            "volatility_analyzer": {
+                "confidence": round(float(confidence), 4),
+                "risk": round(float(risk), 4),
+                "risk_status": risk_status,
+                "atr": round(float(atr_score), 4),
+                "atr_status": atr_status,
+                "expansion": round(float(exp_score), 4),
+                "expansion_status": expansion_status,
+                "compression": round(float(comp_score), 4),
+                "compression_status": compression_status,
+                "breakout": round(float(breakout), 4),
+                "breakout_status": breakout_status,
+                "historical": round(float(historical), 4),
+                "historical_status": historical_status,
+                "volatility_quality": round(float(quality), 4),
+                "volatility_quality_status": volatility_quality_status,
+                "evidence": evidence
+            }
         }
-
-# ==============================================================================
-# EXPORTS
-# ==============================================================================
-
-__all__ = [
-    "VolatilityAnalyzer",
-    "VolatilityAnalysisResult",
-    "VolatilityStateResult",
-    "ContractionExpansionResult",
-    "SqueezeResult",
-    "BreakoutProbabilityResult",
-    "AdvancedVolatilityMetrics",
-    "EvidenceItem"
-]
-

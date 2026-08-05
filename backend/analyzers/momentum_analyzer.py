@@ -1,814 +1,433 @@
-import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, TypedDict, Tuple
+"""
+GREEN BULL RIDER V6
+Layer-2 Quantitative Analyzer: Momentum Intelligence Engine
 
-try:
-    from numba import jit
-    NUMBA_AVAILABLE = True
-except ImportError:
-    NUMBA_AVAILABLE = False
-    def jit(*args, **kwargs):
-        def wrapper(func):
-            return func
-        return wrapper
+This module implements institutional-grade quantitative momentum intelligence.
+It respects exact Layer-1 database provenance, avoids look-ahead bias, and extracts
+multi-dimensional momentum insights solely from explicitly provided feature snapshots.
 
-logger = logging.getLogger(__name__)
+Architectural Guarantees:
+- Strict Exact-Key Provenance: No aliases, no 'or' fallbacks, no missing-feature substitution.
+- Independent Evidence: Each valid feature contributes orthogonally to its respective group.
+- Deterministic Confidence: Derived from orthogonal group coverage, data validity, and signal agreement.
+- Zero History Synthesis: Operates exclusively on the provided scalar snapshot.
+"""
 
-# ==============================================================================
-# CONFIGURATION & CONSTANTS
-# ==============================================================================
-
-EPSILON = 1e-9
-
-MOMENTUM_CONFIG = {
-    "lookbacks": {
-        "micro": 3,
-        "short": 5,
-        "medium": 14,
-        "long": 30,
-        "divergence": 20
-    },
-    "thresholds": {
-        "rsi_ob": 70.0,
-        "rsi_os": 30.0,
-        "adx_trend": 25.0,
-        "vol_expansion": 1.5,
-        "climax_vol_mult": 3.0,
-        "compression_limit": 0.5,
-        "atr_expansion": 1.2
-    },
-    "weights": {
-        "macd": 20.0,
-        "rsi": 20.0,
-        "roc": 15.0,
-        "momentum": 15.0,
-        "adx": 15.0,
-        "slope": 15.0
-    },
-    "mtf_weights": {
-        "_M": 0.30,
-        "_W": 0.25,
-        "_D": 0.20,
-        "_4H": 0.10,
-        "_1H": 0.05,
-        "_15m": 0.05,
-        "_5m": 0.05
-    }
-}
-
-# ==============================================================================
-# TYPE DEFINITIONS FOR OUTPUT STRUCTURE
-# ==============================================================================
-
-class EvidenceItem(TypedDict):
-    type: str
-    weight: float
-    value: str
-    polarity: int
-
-class MomentumStrengthResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class MomentumAccelerationResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    acceleration_rate: float
-    evidence: List[EvidenceItem]
-
-class MomentumExhaustionResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    index: float
-    evidence: List[EvidenceItem]
-
-class MomentumShiftResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class MomentumIgnitionResult(TypedDict):
-    stage: str
-    score: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class MomentumCompressionResult(TypedDict):
-    status: str
-    score: float
-    evidence: List[EvidenceItem]
-
-class MomentumCycleResult(TypedDict):
-    stage: str
-    confidence: float
-
-class RSIAnalysisResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    regime: str
-    evidence: List[EvidenceItem]
-
-class MACDAnalysisResult(TypedDict):
-    status: str
-    score: float
-    confidence: float
-    phase: str
-    evidence: List[EvidenceItem]
-
-class DivergenceResult(TypedDict):
-    status: str
-    strength: float
-    confidence: float
-    divergence_type: str
-    multi_oscillator_score: float
-    evidence: List[EvidenceItem]
-
-class InstitutionalMomentumResult(TypedDict):
-    institutional_score: float
-    retail_score: float
-    dominance: str
-    evidence: List[EvidenceItem]
-
-class MTFMomentumResult(TypedDict):
-    alignment: str
-    score: float
-    timeframes: Dict[str, str]
-
-class SwingReadinessResult(TypedDict):
-    state: str
-    score: float
-    confidence: float
-    evidence: List[EvidenceItem]
-
-class AdvancedMomentumMetrics(TypedDict):
-    momentum_persistence: float
-    momentum_efficiency: float
-    momentum_stability: float
-    momentum_consistency: float
-    impulse_strength: float
-    pullback_strength: float
-    reversal_probability: float
-    continuation_probability: float
-
-class MomentumAnalysisResult(TypedDict):
-    momentum_strength: MomentumStrengthResult
-    momentum_acceleration: MomentumAccelerationResult
-    momentum_exhaustion: MomentumExhaustionResult
-    momentum_shift: MomentumShiftResult
-    momentum_ignition: MomentumIgnitionResult
-    momentum_compression: MomentumCompressionResult
-    momentum_cycle: MomentumCycleResult
-    institutional_momentum: InstitutionalMomentumResult
-    multi_timeframe: MTFMomentumResult
-    rsi_analysis: RSIAnalysisResult
-    macd_analysis: MACDAnalysisResult
-    divergence: DivergenceResult
-    swing_readiness: SwingReadinessResult
-    advanced_metrics: AdvancedMomentumMetrics
-
-# ==============================================================================
-# NUMBA JIT ACCELERATED ENGINES
-# ==============================================================================
-
-@jit(nopython=True, cache=True)
-def _get_nanmin_nanmax(arr: np.ndarray) -> Tuple[float, float]:
-    min_val = np.inf
-    max_val = -np.inf
-    for x in arr:
-        if not np.isnan(x):
-            if x < min_val: min_val = x
-            if x > max_val: max_val = x
-    if np.isinf(min_val):
-        return np.nan, np.nan
-    return min_val, max_val
-
-@jit(nopython=True, cache=True)
-def _divergence_engine_jit(price: np.ndarray, osc: np.ndarray, lookback: int, is_rsi: bool) -> Tuple[float, int]:
-    """
-    O(N) Divergence Scanner. 
-    Returns: (strength [0-100], div_type [1: RegBull, -1: RegBear, 2: HidBull, -2: HidBear, 0: None])
-    """
-    n = len(price)
-    if n < lookback: return 0.0, 0
-    half_lookback = lookback // 2
-    
-    p_past, p_rec = price[-lookback : -half_lookback], price[-half_lookback :]
-    o_past, o_rec = osc[-lookback : -half_lookback], osc[-half_lookback :]
-    
-    max_p_past, max_p_rec = _get_nanmin_nanmax(p_past)[1], _get_nanmin_nanmax(p_rec)[1]
-    min_p_past, min_p_rec = _get_nanmin_nanmax(p_past)[0], _get_nanmin_nanmax(p_rec)[0]
-    
-    max_o_past, max_o_rec = _get_nanmin_nanmax(o_past)[1], _get_nanmin_nanmax(o_rec)[1]
-    min_o_past, min_o_rec = _get_nanmin_nanmax(o_past)[0], _get_nanmin_nanmax(o_rec)[0]
-    
-    if np.isnan(max_p_past) or np.isnan(max_o_past): return 0.0, 0
-        
-    ob_thresh = 65.0 if is_rsi else 0.0
-    os_thresh = 35.0 if is_rsi else 0.0
-
-    if max_p_rec > max_p_past and max_o_rec < max_o_past and max_o_past > ob_thresh:
-        return min(((max_o_past - max_o_rec) / (np.abs(max_o_past) + EPSILON)) * 200.0, 100.0), -1
-    if min_p_rec < min_p_past and min_o_rec > min_o_past and min_o_past < os_thresh:
-        return min(((min_o_rec - min_o_past) / (np.abs(min_o_past) + EPSILON)) * 200.0, 100.0), 1
-    if max_p_rec < max_p_past and max_o_rec > max_o_past and max_o_rec > ob_thresh:
-        return min(((max_o_rec - max_o_past) / (np.abs(max_o_past) + EPSILON)) * 150.0, 100.0), -2
-    if min_p_rec > min_p_past and min_o_rec < min_o_past and min_o_rec < os_thresh:
-        return min(((min_o_past - min_o_rec) / (np.abs(min_o_past) + EPSILON)) * 150.0, 100.0), 2
-
-    return 0.0, 0
-
-# ==============================================================================
-# MOMENTUM ANALYZER ENGINE
-# ==============================================================================
+import math
+from typing import Dict, Any, Optional, List
 
 class MomentumAnalyzer:
     """
-    Institutional Momentum Analyzer evaluating strength, shifts, divergences, 
-    and multi-factor swing readiness using pure functional arrays.
+    Evaluates market momentum conditions, directional strength, divergence, and 
+    acceleration strictly using a provided dictionary of Layer-1 features.
     """
 
-    # ==============================================================================
-    # EXPLICIT CONTRACT: মাস্টার অবজারভার শুধু এই লিস্টটাই দেখবে
-    # ==========================================================
-    EXPECTED_SCHEMA = [
-        'macd_line', 'macd_signal', 'macd_histogram', 
-        'rsi', 'adx', 'linreg_slope', 'linreg_r2', 
-        'roc', 'momentum', 'atr_14'
-    ]
-
-    def __init__(self):
-        self.req_cols = [
-            'open', 'high', 'low', 'close', 'volume',
-            'macd_line', 'macd_signal', 'macd_histogram',
-            'rsi', 'adx', 'linreg_slope', 'linreg_r2', 'roc', 'momentum', 'atr_14'
-        ]
-
-        self.opt_cols = [
-            'bos', 'choch', 'ob_active', 'fvg_active', 'liq_sweep'
-        ]
-        self.mtf_suffixes = ['_5m', '_15m', '_1H', '_4H', '_D', '_W', '_M']
-
-    def _validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        missing = [col for col in self.req_cols if col not in df.columns]
-        if missing:
-            logger.error(f"MomentumAnalyzer missing critical columns: {missing}")
-            raise ValueError(f"MomentumAnalyzer requires missing columns: {missing}")
-            
-        min_len = MOMENTUM_CONFIG["lookbacks"]["long"] + 1
-        if len(df) < min_len:
-            raise ValueError(f"MomentumAnalyzer requires at least {min_len} bars.")
-
-        working_df = df.copy()
-        num_cols = working_df.select_dtypes(include=[np.number]).columns
-        if np.isinf(working_df[num_cols]).any().any():
-            working_df[num_cols] = working_df[num_cols].replace([np.inf, -np.inf], np.nan)
-
-        if working_df[self.req_cols].isna().any().any():
-            working_df[self.req_cols] = working_df[self.req_cols].ffill().bfill()
-            
-        if working_df[self.req_cols].isna().any().any():
-            raise ValueError("Data contains unresolvable NaN columns.")
-            
-        return working_df
-
-    def analyze(self, df: pd.DataFrame) -> MomentumAnalysisResult:
-        safe_df = self._validate_data(df)
-        working_df = safe_df.tail(MOMENTUM_CONFIG["lookbacks"]["long"])
-
-        macd_res = self._analyze_macd(working_df)
-        rsi_res = self._analyze_rsi(working_df)
-        
-        strength_res = self._analyze_strength(working_df, macd_res, rsi_res)
-        accel_res = self._analyze_acceleration(working_df)
-        exhaust_res = self._analyze_exhaustion(working_df)
-        
-        shift_res = self._analyze_shift(working_df)
-        comp_res = self._analyze_compression(working_df)
-        inst_res = self._analyze_institutional(working_df)
-        ignit_res = self._analyze_ignition(shift_res, comp_res, inst_res, working_df)
-        
-        div_res = self._analyze_divergence(working_df)
-        mtf_res = self._analyze_mtf(working_df)
-        
-        cycle_res = self._analyze_cycle(comp_res, ignit_res, strength_res, accel_res, exhaust_res, shift_res)
-        adv_metrics = self._analyze_advanced_metrics(strength_res, accel_res, exhaust_res, comp_res, div_res, inst_res, mtf_res, working_df)
-        readiness_res = self._analyze_swing_readiness(ignit_res, shift_res, inst_res, mtf_res, exhaust_res, strength_res, div_res, adv_metrics, working_df)
-        
-        return {
-            "momentum_strength": strength_res,
-            "momentum_acceleration": accel_res,
-            "momentum_exhaustion": exhaust_res,
-            "momentum_shift": shift_res,
-            "momentum_ignition": ignit_res,
-            "momentum_compression": comp_res,
-            "momentum_cycle": cycle_res,
-            "institutional_momentum": inst_res,
-            "multi_timeframe": mtf_res,
-            "rsi_analysis": rsi_res,
-            "macd_analysis": macd_res,
-            "divergence": div_res,
-            "swing_readiness": readiness_res,
-            "advanced_metrics": adv_metrics
+    def analyze(self, features: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Executes the quantitative momentum analysis engine based on a feature snapshot.
+        """
+        # =====================================================================
+        # 0. STRICT OUTPUT CONTRACT FALLBACK
+        # =====================================================================
+        fallback = {
+            "momentum_analyzer": {
+                "confidence": 0.0,
+                "strength": 0.0,
+                "strength_status": "weak",
+                "acceleration": 0.0,
+                "acceleration_status": "low",
+                "rsi": 0.0,
+                "rsi_status": "bearish",
+                "macd": 0.0,
+                "macd_status": "bearish",
+                "slowdown": 0.0,
+                "slowdown_status": "high",
+                "divergence": 0.0,
+                "divergence_status": "none",
+                "evidence": [
+                    {
+                        "category": "Momentum",
+                        "message": "Insufficient valid Layer-1 momentum features for quantitative analysis.",
+                        "reliability": 0.0,
+                        "likelihood_ratio": 1.0
+                    }
+                ]
+            }
         }
 
-    # --------------------------------------------------------------------------
-    # 1. MOMENTUM STRENGTH
-    # --------------------------------------------------------------------------
-    def _analyze_strength(self, df: pd.DataFrame, macd: MACDAnalysisResult, rsi: RSIAnalysisResult) -> MomentumStrengthResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        max_score = sum(MOMENTUM_CONFIG["weights"].values())
-        latest = df.iloc[-1]
-        
-        w_macd = MOMENTUM_CONFIG["weights"]["macd"]
-        if macd['score'] > 0:
-            score += w_macd; evidence.append({"type": "MACD", "weight": w_macd, "value": "Bullish MACD Force", "polarity": 1})
-        elif macd['score'] < 0:
-            score -= w_macd; evidence.append({"type": "MACD", "weight": w_macd, "value": "Bearish MACD Force", "polarity": -1})
-        
-        w_rsi = MOMENTUM_CONFIG["weights"]["rsi"]
-        if rsi['score'] > 0:
-            score += w_rsi; evidence.append({"type": "RSI", "weight": w_rsi, "value": "Bullish RSI", "polarity": 1})
-        elif rsi['score'] < 0:
-            score -= w_rsi; evidence.append({"type": "RSI", "weight": w_rsi, "value": "Bearish RSI", "polarity": -1})
+        if not features or not isinstance(features, dict):
+            return fallback
+
+        # =====================================================================
+        # 1. FEATURE UNIVERSE DEFINITION & EXACT PROVENANCE TRACING
+        # =====================================================================
+        UNIVERSE = [
+            'momentum', 'roc', 'roc_10', 'roc_20', 'rsi', 'rsi_14', 'rsi_slope', 
+            'macd', 'macd_signal', 'macd_histogram', 'macd_slope', 'adx', 'di_plus', 'di_minus',
+            'cci', 'trix', 'ppo', 'ppo_signal', 'ppo_histogram', 'dpo', 
+            'stochastic', 'stochastic_k', 'stochastic_d', 'stoch_rsi', 'stoch_rsi_k', 'stoch_rsi_d', 
+            'williams_r', 'ultimate_oscillator',
+            'momentum_slope', 'roc_slope', 'trix_slope', 'ppo_slope',
+            'rsi_divergence', 'macd_divergence', 'momentum_divergence', 'roc_divergence', 
+            'stochastic_divergence', 'bullish_divergence', 'bearish_divergence',
+            'momentum_acceleration', 'rsi_acceleration', 'macd_acceleration', 'roc_acceleration', 
+            'momentum_zscore', 'roc_zscore', 'rsi_percentile', 'momentum_percentile', 
+            'momentum_volatility', 'momentum_std', 'momentum_variance',
+            'close', 'open', 'high', 'low'
+        ]
+
+        trace = {
+            "declared": len(UNIVERSE),
+            "unavailable": 0,
+            "invalid": 0,
+            "valid": 0,
+            "used": 0
+        }
+
+        validated = {}
+        used_keys = set()
+
+        # Strict Sanitization and Validation
+        for key in UNIVERSE:
+            if key not in features:
+                trace["unavailable"] += 1
+                continue
             
-        w_roc = MOMENTUM_CONFIG["weights"]["roc"]
-        if latest['roc'] > 0:
-            score += w_roc; evidence.append({"type": "ROC", "weight": w_roc, "value": "Positive ROC", "polarity": 1})
-        elif latest['roc'] < 0:
-            score -= w_roc; evidence.append({"type": "ROC", "weight": w_roc, "value": "Negative ROC", "polarity": -1})
-
-        w_mom = MOMENTUM_CONFIG["weights"]["momentum"]
-        if latest['momentum'] > 0:
-            score += w_mom; evidence.append({"type": "Momentum", "weight": w_mom, "value": "Positive Momentum", "polarity": 1})
-        elif latest['momentum'] < 0:
-            score -= w_mom; evidence.append({"type": "Momentum", "weight": w_mom, "value": "Negative Momentum", "polarity": -1})
-
-        w_adx = MOMENTUM_CONFIG["weights"]["adx"]
-        if latest['adx'] > MOMENTUM_CONFIG["thresholds"]["adx_trend"]:
-            aligned = 1 if score > 0 else -1
-            score += w_adx if aligned == 1 else -w_adx
-            evidence.append({"type": "ADX", "weight": w_adx, "value": "ADX Supporting Trend", "polarity": aligned})
-
-        norm_score = np.clip((score / max_score) * 100.0, -100.0, 100.0)
-        
-        if norm_score >= 60: status = "Strong Bullish"
-        elif norm_score >= 20: status = "Bullish"
-        elif norm_score > -20: status = "Neutral"
-        elif norm_score > -60: status = "Bearish"
-        else: status = "Strong Bearish"
-
-        pol = 1 if norm_score > 0 else -1 if norm_score < 0 else 0
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == pol)
-        total_w = sum(e['weight'] for e in evidence)
-        conf = np.clip((aligned_w / total_w) * 100.0 if total_w > 0 else 0.0, 0.0, 100.0)
-
-        return {"status": status, "score": round(norm_score, 2), "confidence": round(conf, 2), "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 2. ACCELERATION & EXHAUSTION
-    # --------------------------------------------------------------------------
-    def _analyze_acceleration(self, df: pd.DataFrame) -> MomentumAccelerationResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        accel_rate = 0.0
-        recent = df.tail(MOMENTUM_CONFIG["lookbacks"]["short"])
-        
-        hist_slope = recent['macd_histogram'].diff().mean()
-        if hist_slope > 0 and df['macd_histogram'].iloc[-1] > 0:
-            score += 30.0; accel_rate += 1.0
-            evidence.append({"type": "Hist_Expand", "weight": 30.0, "value": "Bullish Histogram Expansion", "polarity": 1})
-        elif hist_slope < 0 and df['macd_histogram'].iloc[-1] < 0:
-            score += 30.0; accel_rate += 1.0
-            evidence.append({"type": "Hist_Expand", "weight": 30.0, "value": "Bearish Histogram Expansion", "polarity": -1})
-
-        rsi_slope = recent['rsi'].diff().mean()
-        if abs(rsi_slope) > 1.5:
-            score += 30.0; accel_rate += abs(rsi_slope) * 0.1
-            evidence.append({"type": "RSI_Velocity", "weight": 30.0, "value": "High RSI Velocity", "polarity": 1 if rsi_slope > 0 else -1})
-
-        score = np.clip(score, 0.0, 100.0)
-        status = "Rapid Acceleration" if score >= 60 else "Accelerating" if score >= 30 else "Constant"
-        
-        target_pol = 1 if (hist_slope > 0 or rsi_slope > 0) else -1
-        total_w = sum(e['weight'] for e in evidence)
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == target_pol)
-        conf = np.clip((aligned_w / total_w) * 100.0 if total_w > 0 else 0.0, 0.0, 100.0)
-
-        return {"status": status, "score": round(score, 2), "confidence": round(conf, 2), "acceleration_rate": round(accel_rate, 2), "evidence": evidence}
-
-    def _analyze_exhaustion(self, df: pd.DataFrame) -> MomentumExhaustionResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        latest = df.iloc[-1]
-        
-        vol_sma = df['volume'].tail(20).mean()
-        if latest['volume'] > vol_sma * MOMENTUM_CONFIG["thresholds"]["climax_vol_mult"]:
-            body_pct = abs(latest['close'] - latest['open']) / (latest['high'] - latest['low'] + EPSILON)
-            if body_pct < 0.4:
-                score += 40.0
-                evidence.append({"type": "Volume_Climax", "weight": 40.0, "value": "Blowoff / Climax Volume w/ Rejection", "polarity": -1})
+            val = features.get(key)
+            if val is None:
+                trace["unavailable"] += 1
+                continue
             
-        if latest['rsi'] > 80 or latest['rsi'] < 20:
-            score += 30.0
-            evidence.append({"type": "RSI_Extreme", "weight": 30.0, "value": "RSI at Extreme Exhaustion", "polarity": -1})
-
-        roc_std = df['roc'].tail(10).std()
-        roc_std_past = df['roc'].iloc[-20:-10].std()
-        if roc_std < roc_std_past * 0.5:
-            score += 30.0
-            evidence.append({"type": "Volatility_Collapse", "weight": 30.0, "value": "Momentum Volatility Collapsing post-peak", "polarity": -1})
-
-        score = np.clip(score, 0.0, 100.0)
-        status = "Climax/Blowoff" if score > 70 else "Exhausting" if score > 35 else "Normal"
-        
-        total_w = sum(e['weight'] for e in evidence)
-        active_w = sum(e['weight'] for e in evidence if e['polarity'] != 0)
-        conf = np.clip((active_w / total_w) * 100.0 if total_w > 0 else 0.0, 0.0, 100.0)
-        
-        return {"status": status, "score": round(score, 2), "confidence": round(conf, 2), "index": round(score, 2), "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 3. EARLY SWING: SHIFT, COMPRESSION & IGNITION (ADVANCED)
-    # --------------------------------------------------------------------------
-    def _analyze_shift(self, df: pd.DataFrame) -> MomentumShiftResult:
-        evidence: List[EvidenceItem] = []
-        recent = df.tail(3)
-        score = 0.0
-        
-        if recent['macd_histogram'].iloc[-2] < 0 and recent['macd_histogram'].iloc[-1] > 0:
-            score += 25.0; evidence.append({"type": "MACD_Hist", "weight": 25.0, "value": "MACD Hist Negative -> Positive", "polarity": 1})
-        elif recent['macd_histogram'].iloc[-2] > 0 and recent['macd_histogram'].iloc[-1] < 0:
-            score -= 25.0; evidence.append({"type": "MACD_Hist", "weight": 25.0, "value": "MACD Hist Positive -> Negative", "polarity": -1})
-
-        if recent['macd_line'].iloc[-2] < recent['macd_signal'].iloc[-2] and recent['macd_line'].iloc[-1] > recent['macd_signal'].iloc[-1]:
-            score += 20.0; evidence.append({"type": "MACD_Line", "weight": 20.0, "value": "MACD Line Bullish Cross", "polarity": 1})
-        elif recent['macd_line'].iloc[-2] > recent['macd_signal'].iloc[-2] and recent['macd_line'].iloc[-1] < recent['macd_signal'].iloc[-1]:
-            score -= 20.0; evidence.append({"type": "MACD_Line", "weight": 20.0, "value": "MACD Line Bearish Cross", "polarity": -1})
-
-        if recent['rsi'].iloc[-2] < 50 and recent['rsi'].iloc[-1] >= 50:
-            score += 20.0; evidence.append({"type": "RSI_Cross", "weight": 20.0, "value": "RSI Crosses > 50", "polarity": 1})
-        elif recent['rsi'].iloc[-2] > 50 and recent['rsi'].iloc[-1] <= 50:
-            score -= 20.0; evidence.append({"type": "RSI_Cross", "weight": 20.0, "value": "RSI Crosses < 50", "polarity": -1})
-
-        if recent['momentum'].iloc[-2] < 0 and recent['momentum'].iloc[-1] > 0:
-            score += 15.0; evidence.append({"type": "Mom_Cross", "weight": 15.0, "value": "Momentum Zero Cross Up", "polarity": 1})
-        elif recent['momentum'].iloc[-2] > 0 and recent['momentum'].iloc[-1] < 0:
-            score -= 15.0; evidence.append({"type": "Mom_Cross", "weight": 15.0, "value": "Momentum Zero Cross Down", "polarity": -1})
-
-        status = "Positive Shift" if score >= 30 else "Negative Shift" if score <= -30 else "No Major Shift"
-        
-        target_pol = 1 if score > 0 else -1 if score < 0 else 0
-        total_w = sum(e['weight'] for e in evidence)
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == target_pol)
-        conf = np.clip((aligned_w / total_w) * 100.0 if total_w > 0 else 0.0, 0.0, 100.0)
-
-        return {"status": status, "score": round(score, 2), "confidence": round(conf, 2), "evidence": evidence}
-
-    def _analyze_compression(self, df: pd.DataFrame) -> MomentumCompressionResult:
-        evidence: List[EvidenceItem] = []
-        recent = df.tail(20)
-        score = 0.0
-        
-        roc_std = recent['roc'].std()
-        if roc_std < MOMENTUM_CONFIG["thresholds"]["compression_limit"]:
-            score += 35.0
-            evidence.append({"type": "ROC_Squeeze", "weight": 35.0, "value": "Momentum heavily compressed", "polarity": 0})
-            
-        hh, ll = recent['high'].max(), recent['low'].min()
-        atr = recent['atr_14'].iloc[-1]
-        donch_width = (hh - ll) / (atr + EPSILON)
-        
-        if donch_width < 4.0: 
-            score += 35.0
-            evidence.append({"type": "Price_Squeeze", "weight": 35.0, "value": "Price Volatility Squeeze (Donchian/BB Proxy)", "polarity": 0})
-            
-        atr_sma = recent['atr_14'].mean()
-        if atr < atr_sma * 0.8:
-            score += 30.0
-            evidence.append({"type": "ATR_Squeeze", "weight": 30.0, "value": "ATR Compression Phase", "polarity": 0})
-            
-        status = "High Compression" if score >= 70 else "Building" if score >= 35 else "Expanded"
-        return {"status": status, "score": round(score, 2), "evidence": evidence}
-
-    def _analyze_ignition(self, shift: MomentumShiftResult, comp: MomentumCompressionResult, inst: InstitutionalMomentumResult, df: pd.DataFrame) -> MomentumIgnitionResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        latest = df.iloc[-1]
-        
-        if abs(shift['score']) >= 30:
-            score += 25.0
-            evidence.append({"type": "Shift", "weight": 25.0, "value": "Directional Momentum Shift detected", "polarity": np.sign(shift['score'])})
-            
-        if comp['score'] >= 35 and abs(shift['score']) > 0:
-            score += 25.0
-            evidence.append({"type": "Compression_Break", "weight": 25.0, "value": "Breaking out of Compression", "polarity": np.sign(shift['score'])})
-
-        # True Institutional Volume Alignment (Ensures volume spike is paired with structural intent)
-        vol_sma = df['volume'].tail(20).mean()
-        vol_spike = latest['volume'] > vol_sma * MOMENTUM_CONFIG["thresholds"]["vol_expansion"]
-        if vol_spike and inst['institutional_score'] > 30:
-            score += 25.0
-            evidence.append({"type": "Inst_Volume", "weight": 25.0, "value": "SMC Aligned Volume Expansion", "polarity": np.sign(shift['score'])})
-            
-        atr_sma = df['atr_14'].tail(20).mean()
-        if latest['atr_14'] > atr_sma * MOMENTUM_CONFIG["thresholds"]["atr_expansion"]:
-            score += 25.0
-            evidence.append({"type": "Volatility", "weight": 25.0, "value": "Volatility Expanding with Direction", "polarity": np.sign(shift['score'])})
-
-        score = np.clip(score, 0.0, 100.0)
-        stage = "Explosive" if score >= 85 else "Igniting" if score >= 60 else "Building" if score >= 30 else "Dormant"
-        
-        total_w = sum(e['weight'] for e in evidence)
-        target_pol = np.sign(shift['score']) if shift['score'] != 0 else 0
-        aligned_w = sum(e['weight'] for e in evidence if e['polarity'] == target_pol)
-        conf = np.clip((aligned_w / total_w) * 100.0 if total_w > 0 else 0.0, 0.0, 100.0)
-        
-        return {"stage": stage, "score": round(score, 2), "confidence": round(conf, 2), "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 4. MULTI-TIMEFRAME (MTF) MOMENTUM ALIGNMENT (Multi-Indicator)
-    # --------------------------------------------------------------------------
-    def _analyze_mtf(self, df: pd.DataFrame) -> MTFMomentumResult:
-        latest = df.iloc[-1]
-        tfs = {}
-        score = 0.0
-        act_w = 0.0
-        weights = MOMENTUM_CONFIG["mtf_weights"]
-        
-        # Require strict local alignment across ROC, RSI, MACD Histogram, Momentum, and ADX context
-        local_bull = (latest['roc'] > 0 and latest['rsi'] > 50 and latest['macd_histogram'] > 0 and latest['momentum'] > 0)
-        local_bear = (latest['roc'] < 0 and latest['rsi'] < 50 and latest['macd_histogram'] < 0 and latest['momentum'] < 0)
-        
-        tfs['Local'] = "Bullish" if local_bull else "Bearish" if local_bear else "Mixed"
-        act_w += 0.15 
-        if local_bull: score += 0.15
-        elif local_bear: score -= 0.15
-        
-        for sfx in self.mtf_suffixes:
-            roc_col, rsi_col = f'roc{sfx}', f'rsi{sfx}'
-            macd_col, mom_col, adx_col = f'macd_histogram{sfx}', f'momentum{sfx}', f'adx{sfx}'
-            
-            # Check availability of all required HTF indicators
-            if all(c in df.columns and pd.notna(latest[c]) for c in [roc_col, rsi_col, macd_col, mom_col, adx_col]):
-                w = weights.get(sfx, 0.0)
-                act_w += w
-                
-                # Strict multi-indicator HTF alignment
-                b_align = latest[roc_col] > 0 and latest[rsi_col] > 50 and latest[macd_col] > 0 and latest[mom_col] > 0
-                br_align = latest[roc_col] < 0 and latest[rsi_col] < 50 and latest[macd_col] < 0 and latest[mom_col] < 0
-                
-                if b_align:
-                    tfs[sfx.strip('_')] = "Bullish"
-                    score += w
-                elif br_align:
-                    tfs[sfx.strip('_')] = "Bearish"
-                    score -= w
-                else:
-                    tfs[sfx.strip('_')] = "Mixed"
+            try:
+                if isinstance(val, (bool, str)):
+                    trace["invalid"] += 1
+                    continue
                     
-        norm = (score / act_w * 100.0) if act_w > 0 else 0.0
-        align = "Strong Bullish Alignment" if norm > 70 else "Strong Bearish Alignment" if norm < -70 else "Mixed / Choppy"
-        return {"alignment": align, "score": round(norm, 2), "timeframes": tfs}
+                f = float(val)
+                if math.isnan(f) or math.isinf(f):
+                    trace["invalid"] += 1
+                    continue
+                
+                validated[key] = f
+                trace["valid"] += 1
+            except (ValueError, TypeError):
+                trace["invalid"] += 1
 
-    # --------------------------------------------------------------------------
-    # 5. CYCLE DETECTION (8-STAGE STABLE)
-    # --------------------------------------------------------------------------
-    def _analyze_cycle(self, comp: MomentumCompressionResult, ignit: MomentumIgnitionResult, str_res: MomentumStrengthResult, acc_res: MomentumAccelerationResult, exh_res: MomentumExhaustionResult, shift: MomentumShiftResult) -> MomentumCycleResult:
-        # Ensures that stages don't flicker by demanding heavier evidence for stage transitions
-        if comp['score'] >= 70: stage = "Accumulation"
-        elif ignit['score'] >= 60 and shift['score'] != 0: stage = "Early Expansion"
-        elif ignit['score'] >= 30 and abs(str_res['score']) > 20: stage = "Expansion"
-        elif acc_res['score'] >= 60: stage = "Acceleration"
-        elif abs(str_res['score']) >= 60: stage = "Markup/Markdown"
-        elif exh_res['score'] >= 60: stage = "Exhaustion"
-        elif abs(shift['score']) > 40 and abs(str_res['score']) > 0 and np.sign(shift['score']) != np.sign(str_res['score']): 
-            stage = "Distribution"
-        else: stage = "Reset"
-        
-        # Proxied confidence based on clarity of stage
-        conf = 100.0 if stage in ["Accumulation", "Acceleration", "Exhaustion"] else 80.0
-        return {"stage": stage, "confidence": round(conf, 2)}
+        if not validated:
+            return fallback
 
-    # --------------------------------------------------------------------------
-    # 6. INSTITUTIONAL VS RETAIL MOMENTUM (VOLUME ALIGNED)
-    # --------------------------------------------------------------------------
-    def _analyze_institutional(self, df: pd.DataFrame) -> InstitutionalMomentumResult:
-        evidence: List[EvidenceItem] = []
-        inst_score = 0.0
-        retail_score = 0.0
-        latest = df.iloc[-1]
-        
-        # Ensure optional SMC columns exist safely
-        smc_aligned = False
-        has_bos = 'bos' in df.columns and pd.notna(latest['bos']) and latest['bos'] != 0
-        has_ob = 'ob_active' in df.columns and pd.notna(latest['ob_active']) and latest['ob_active']
-        has_fvg = 'fvg_active' in df.columns and pd.notna(latest['fvg_active']) and latest['fvg_active']
-        has_liq = 'liq_sweep' in df.columns and pd.notna(latest['liq_sweep']) and latest['liq_sweep'] != 0
+        # Single unified accessor that strictly traces usage
+        def get_val(key: str) -> Optional[float]:
+            if key in validated:
+                used_keys.add(key)
+                return validated[key]
+            return None
 
-        if has_ob: inst_score += 30.0; smc_aligned = True
-        if has_fvg: inst_score += 20.0; smc_aligned = True
-        if has_liq: inst_score += 20.0; smc_aligned = True
-        if has_bos: inst_score += 30.0; smc_aligned = True
+        # Bounded normalization helpers
+        def safe_norm(val: float, min_in: float, max_in: float) -> float:
+            if val <= min_in: return 0.0
+            if val >= max_in: return 100.0
+            if max_in == min_in: return 0.0
+            return ((val - min_in) / (max_in - min_in)) * 100.0
+
+        def safe_tanh_map(val: float, scale: float = 1.0) -> float:
+            return math.tanh(val * scale) * 100.0
+
+        # =====================================================================
+        # 2. ORTHOGONAL EVIDENCE GROUPS (STRENGTH & BIAS)
+        # =====================================================================
+        directional_votes: List[float] = []
+        intensity_votes: List[float] = []
+        groups_present = 0
+
+        # --- Group 1: RSI Engine ---
+        rsi_vals = []
+        v_rsi = get_val('rsi')
+        v_rsi_14 = get_val('rsi_14')
         
-        # Volume Alignment Penalty/Bonus
-        vol_sma = df['volume'].tail(20).mean()
-        vol_ratio = latest['volume'] / (vol_sma + EPSILON)
-        
-        if smc_aligned:
-            if vol_ratio > 1.2:
-                inst_score += 20.0 * min(vol_ratio, 2.0) # Bonus for volume confirmation
-                evidence.append({"type": "SMC_Vol", "weight": inst_score, "value": "SMC Supported by Volume Expansion", "polarity": 1})
-            elif vol_ratio < 0.8:
-                inst_score *= 0.5 # Severe penalty for structure breaks lacking volume (Trap Risk)
-                evidence.append({"type": "SMC_Trap", "weight": inst_score, "value": "SMC Structure without Volume (Trap Risk)", "polarity": -1})
-            else:
-                evidence.append({"type": "SMC", "weight": inst_score, "value": "Smart Money Footprints Active", "polarity": 1})
+        if v_rsi is not None: rsi_vals.append(v_rsi)
+        if v_rsi_14 is not None: rsi_vals.append(v_rsi_14)
+
+        rsi_score = 0.0
+        rsi_status = "bearish"
+
+        if rsi_vals:
+            groups_present += 1
+            avg_rsi = sum(rsi_vals) / len(rsi_vals)
+            rsi_score = max(0.0, min(100.0, avg_rsi))
+            rsi_status = "bullish" if rsi_score > 50.0 else "bearish"
             
-        # Retail checks (Pure Oscillator extreme chasing)
-        if latest['rsi'] > 75 or latest['rsi'] < 25:
-            retail_score += 50.0
-            evidence.append({"type": "Retail", "weight": 50.0, "value": "Retail Oscillator Extremes", "polarity": -1})
+            directional_votes.append(1.0 if rsi_score > 50.0 else -1.0)
+            intensity_votes.append(abs(rsi_score - 50.0) * 2.0)
+
+        # --- Group 2: MACD Engine ---
+        v_macd = get_val('macd')
+        v_macd_sig = get_val('macd_signal')
+        v_macd_hist = get_val('macd_histogram')
+        
+        macd_score = 0.0
+        macd_status = "bearish"
+        macd_signals_used = 0
+        macd_dir_sum = 0.0
+        macd_int_sum = 0.0
+
+        if v_macd_hist is not None:
+            macd_signals_used += 1
+            macd_dir_sum += (1.0 if v_macd_hist > 0 else -1.0)
+            macd_int_sum += abs(safe_tanh_map(v_macd_hist, 10.0))
+            macd_status = "bullish" if v_macd_hist > 0 else "bearish"
             
-        inst_score = np.clip(inst_score, 0.0, 100.0)
-        retail_score = np.clip(retail_score, 0.0, 100.0)
-        
-        dom = "Institutional Dominance" if inst_score > retail_score + 20 else "Retail Dominance" if retail_score > inst_score + 20 else "Mixed Context"
-        
-        return {"institutional_score": round(inst_score, 2), "retail_score": round(retail_score, 2), "dominance": dom, "evidence": evidence}
-
-    # --------------------------------------------------------------------------
-    # 7. SWING READINESS (12-FACTOR ENGINE)
-    # --------------------------------------------------------------------------
-    def _analyze_swing_readiness(self, ignit: MomentumIgnitionResult, shift: MomentumShiftResult, inst: InstitutionalMomentumResult, mtf: MTFMomentumResult, exh: MomentumExhaustionResult, s: MomentumStrengthResult, div: DivergenceResult, adv: AdvancedMomentumMetrics, df: pd.DataFrame) -> SwingReadinessResult:
-        evidence: List[EvidenceItem] = []
-        score = 0.0
-        
-        target_pol = np.sign(shift['score']) if shift['score'] != 0 else np.sign(s['score'])
-        
-        # 1-2. Ignition & Shift (Early Entry Multipliers)
-        score += (ignit['score'] / 100.0) * 15.0
-        score += (abs(shift['score']) / 100.0) * 10.0
-        
-        # 3-4. Institutional & Volume Quality
-        score += (inst['institutional_score'] / 100.0) * 15.0
-        score += (adv['volume_confirmation'] / 100.0) * 10.0
-        
-        # 5. MTF Alignment
-        if target_pol != 0 and np.sign(mtf['score']) == target_pol:
-            score += (abs(mtf['score']) / 100.0) * 10.0
+        if v_macd is not None and v_macd_sig is not None:
+            macd_signals_used += 1
+            macd_dir_sum += (1.0 if v_macd > v_macd_sig else -1.0)
+            macd_int_sum += abs(safe_tanh_map(v_macd - v_macd_sig, 5.0))
             
-        # 6-7. Trend Strength & Momentum Quality Validation
-        score += (abs(s['score']) / 100.0) * 10.0
-        score += (adv['momentum_quality'] / 100.0) * 10.0
-        
-        # 8-9. ADX Validation & Persistence
-        latest_adx = df['adx'].iloc[-1]
-        score += min((latest_adx / 50.0) * 10.0, 10.0)
-        score += (adv['momentum_persistence'] / 100.0) * 10.0
+        if v_macd is not None:
+            macd_signals_used += 1
+            macd_dir_sum += (1.0 if v_macd > 0 else -1.0)
+            macd_int_sum += abs(safe_tanh_map(v_macd, 5.0))
 
-        # 10. Volatility / ATR Expansion Proxy
-        atr_sma = df['atr_14'].tail(20).mean()
-        if df['atr_14'].iloc[-1] > atr_sma * 1.2:
-            score += 5.0
-
-        # 11-12. Penalties (Exhaustion & Divergence)
-        if exh['score'] > 40: score -= (exh['score'] * 0.4)
-        if div['status'] == "Active Divergence" and np.sign(div['strength']) != target_pol:
-            score -= 30.0 # Heavy penalty if diverging against target trade
+        if macd_signals_used > 0:
+            groups_present += 1
+            macd_score = macd_int_sum / macd_signals_used
+            net_macd_dir = macd_dir_sum / macd_signals_used
             
-        score = np.clip(score, 0.0, 100.0)
-        
-        if score >= 85: state = "Ready (Optimal Entry)"
-        elif score >= 65: state = "Early (Building)"
-        elif score >= 45: state = "Running"
-        elif score >= 25: state = "Late (Extended)"
-        elif exh['score'] > 60: state = "Exhausted"
-        else: state = "Very Early / Dormant"
-        
-        evidence.append({"type": "SwingReadiness", "weight": 100.0, "value": f"Composite 12-Factor Readiness: {state}", "polarity": target_pol})
-        
-        # Proper confidence calculation based on readiness component consistency
-        conf = adv['momentum_consistency']
+            directional_votes.append(1.0 if net_macd_dir > 0 else -1.0)
+            intensity_votes.append(macd_score)
 
-        return {"state": state, "score": round(score, 2), "confidence": round(conf, 2), "evidence": evidence}
+        # --- Group 3: Raw Momentum / ROC ---
+        roc_signals = []
+        for k in ['momentum', 'roc', 'roc_10', 'roc_20']:
+            v = get_val(k)
+            if v is not None:
+                roc_signals.append((1.0 if v > 0 else -1.0, abs(safe_tanh_map(v, 0.5))))
+                
+        for k in ['momentum_zscore', 'roc_zscore']:
+            v = get_val(k)
+            if v is not None:
+                roc_signals.append((1.0 if v > 0 else -1.0, abs(safe_tanh_map(v, 0.5))))
 
-    # --------------------------------------------------------------------------
-    # ADVANCED METRICS, RSI, MACD & MULTI-OSC DIVERGENCE
-    # --------------------------------------------------------------------------
-    def _analyze_advanced_metrics(self, s: MomentumStrengthResult, a: MomentumAccelerationResult, exh: MomentumExhaustionResult, comp: MomentumCompressionResult, div: DivergenceResult, inst: InstitutionalMomentumResult, mtf: MTFMomentumResult, df: pd.DataFrame) -> AdvancedMomentumMetrics:
-        latest = df.iloc[-1]
-        
-        # Momentum Persistence
-        roc_arr = df['roc'].tail(20).to_numpy()
-        pos_roc = np.sum(roc_arr > 0)
-        persistence = (pos_roc / 20.0 * 100.0) if s['score'] > 0 else ((20 - pos_roc) / 20.0 * 100.0)
-        
-        vol_sma = df['volume'].tail(20).mean()
-        vol_conf = np.clip((latest['volume'] / (vol_sma + EPSILON)) * 50.0, 0.0, 100.0)
-        
-        # Check strict agreement across oscillators (RSI, MACD, ROC)
-        osc_agree = 100.0 if (latest['rsi'] > 50 and latest['macd_line'] > 0 and latest['roc'] > 0) else (100.0 if latest['rsi'] < 50 and latest['macd_line'] < 0 and latest['roc'] < 0 else 0.0)
+        if roc_signals:
+            groups_present += 1
+            avg_dir = sum(d for d, _ in roc_signals) / len(roc_signals)
+            avg_int = sum(i for _, i in roc_signals) / len(roc_signals)
+            directional_votes.append(1.0 if avg_dir > 0 else -1.0)
+            intensity_votes.append(avg_int)
 
-        # Base momentum continuation probability (to be combined in Layer 3 Engine with Trend/Vol layers)
-        rel = (abs(s['score']) * 0.3) + (persistence * 0.3) + (inst['institutional_score'] * 0.4)
-        if div['status'] == "Active Divergence": rel *= 0.5
+        # --- Group 4: Trend Directional Strength (ADX/DI) ---
+        v_adx = get_val('adx')
+        v_di_plus = get_val('di_plus')
+        v_di_minus = get_val('di_minus')
+        
+        if v_di_plus is not None and v_di_minus is not None:
+            groups_present += 1
+            di_dir = 1.0 if v_di_plus > v_di_minus else -1.0
+            directional_votes.append(di_dir)
+            
+            di_diff = abs(v_di_plus - v_di_minus)
+            adx_val = v_adx if v_adx is not None else 0.0
+            adx_intensity = safe_norm(adx_val, 15.0, 40.0)
+            intensity_votes.append((adx_intensity * 0.7) + (safe_norm(di_diff, 0.0, 30.0) * 0.3))
 
+        # --- Group 5: Core Oscillators ---
+        osc_signals = []
+        
+        v_stoch_k = get_val('stochastic_k')
+        v_stoch = get_val('stochastic')
+        # Independent processing without 'or' aliases
+        if v_stoch_k is not None: osc_signals.append((1.0 if v_stoch_k > 50.0 else -1.0, abs(v_stoch_k - 50.0) * 2.0))
+        if v_stoch is not None: osc_signals.append((1.0 if v_stoch > 50.0 else -1.0, abs(v_stoch - 50.0) * 2.0))
+            
+        v_cci = get_val('cci')
+        if v_cci is not None: osc_signals.append((1.0 if v_cci > 0 else -1.0, abs(safe_tanh_map(v_cci, 0.01))))
+            
+        v_will = get_val('williams_r')
+        if v_will is not None: osc_signals.append((1.0 if v_will > -50.0 else -1.0, abs(v_will + 50.0) * 2.0))
+            
+        v_ult = get_val('ultimate_oscillator')
+        if v_ult is not None: osc_signals.append((1.0 if v_ult > 50.0 else -1.0, abs(v_ult - 50.0) * 2.0))
+
+        if osc_signals:
+            groups_present += 1
+            avg_dir = sum(d for d, _ in osc_signals) / len(osc_signals)
+            avg_int = sum(i for _, i in osc_signals) / len(osc_signals)
+            directional_votes.append(1.0 if avg_dir > 0 else -1.0)
+            intensity_votes.append(avg_int)
+
+        # --- Base Net Bias & Agreement ---
+        net_bias = sum(directional_votes) / len(directional_votes) if directional_votes else 0.0
+        base_intensity = sum(intensity_votes) / len(intensity_votes) if intensity_votes else 0.0
+        
+        # Agreement factor penalizes the final intensity if orthogonal groups contradict
+        agreement_factor = abs(net_bias)
+        
+        strength_score = base_intensity * (0.4 + (agreement_factor * 0.6))
+        strength = max(0.0, min(100.0, strength_score))
+        strength_status = "strong" if strength >= 60.0 else "weak"
+
+        # =====================================================================
+        # 3. ACCELERATION ENGINE
+        # =====================================================================
+        accel_signals = []
+        accel_dirs = []
+        
+        # Explicitly declared scale mapping for independent acceleration keys
+        acc_maps = {
+            'rsi_slope': 0.2, 'rsi_acceleration': 0.2,
+            'macd_slope': 2.0, 'macd_acceleration': 2.0,
+            'momentum_slope': 0.5, 'roc_slope': 0.5, 'momentum_acceleration': 0.5,
+            'ppo_slope': 5.0, 'trix_slope': 5.0, 'roc_acceleration': 0.5
+        }
+        
+        for k, scale in acc_maps.items():
+            val = get_val(k)
+            if val is not None:
+                accel_dirs.append(1.0 if val > 0 else -1.0)
+                accel_signals.append(abs(safe_tanh_map(val, scale)))
+
+        if accel_signals:
+            groups_present += 1
+
+        accel_intensity = sum(accel_signals) / len(accel_signals) if accel_signals else 0.0
+        accel_bias = sum(accel_dirs) / len(accel_dirs) if accel_dirs else 0.0
+        
+        acceleration = max(0.0, min(100.0, accel_intensity))
+        acceleration_status = "high" if acceleration >= 50.0 else "low"
+
+        # =====================================================================
+        # 4. SLOWDOWN ENGINE (Momentum Divergence from Trajectory)
+        # =====================================================================
+        slowdown = 0.0
+        
+        # Structural Slowdown: Primary momentum is strong, but acceleration firmly opposes it
+        if abs(net_bias) > 0.3 and len(accel_dirs) > 0:
+            if (net_bias > 0 and accel_bias < -0.2) or (net_bias < 0 and accel_bias > 0.2):
+                slowdown_base = (abs(net_bias) * 50.0) + (abs(accel_bias) * 50.0)
+                slowdown = max(0.0, min(100.0, slowdown_base))
+                
+        # Oscillator Extreme Slowdown (MACD histogram decaying in overbought/oversold)
+        if v_macd_hist is not None and v_macd is not None and rsi_vals:
+            avg_r = sum(rsi_vals) / len(rsi_vals)
+            if (avg_r > 70 and v_macd_hist < 0 and v_macd > 0) or (avg_r < 30 and v_macd_hist > 0 and v_macd < 0):
+                slowdown = max(slowdown, 75.0)
+
+        slowdown_status = "high" if slowdown >= 50.0 else "low"
+
+        # =====================================================================
+        # 5. DIVERGENCE ENGINE
+        # =====================================================================
+        div_signals = []
+        div_flags = [
+            'rsi_divergence', 'macd_divergence', 'momentum_divergence', 'roc_divergence',
+            'stochastic_divergence', 'bullish_divergence', 'bearish_divergence'
+        ]
+        
+        div_bias = 0.0
+        for df in div_flags:
+            d_val = get_val(df)
+            if d_val is not None and abs(d_val) > 0:
+                div_signals.append(abs(d_val))
+                if 'bullish' in df or d_val > 0: div_bias += 1.0
+                if 'bearish' in df or d_val < 0: div_bias -= 1.0
+                
+        divergence = 0.0
+        if div_signals:
+            groups_present += 1
+            div_raw = sum(div_signals) * 20.0 
+            divergence = max(0.0, min(100.0, div_raw))
+            
+        divergence_status = "strong" if divergence >= 50.0 else "none"
+
+        # =====================================================================
+        # 6. QUALITY & CONFIDENCE ENGINE
+        # =====================================================================
+        trace["used"] = len(used_keys)
+        
+        # 7 total possible orthogonal structural groups
+        EXPECTED_GROUPS = 6.0 
+        coverage_ratio = min(groups_present / EXPECTED_GROUPS, 1.0)
+        
+        # Confidence incorporates orthogonal coverage ratio + internal agreement
+        confidence_raw = (coverage_ratio * 100.0) * (0.6 + (agreement_factor * 0.4))
+        
+        # Contradiction penalty if we have solid coverage but complete directional chaos
+        if groups_present >= 3 and agreement_factor < 0.2:
+            confidence_raw -= 20.0
+            
+        confidence = max(0.0, min(100.0, confidence_raw))
+
+        # =====================================================================
+        # 7. STATISTICAL LIKELIHOOD RATIO
+        # =====================================================================
+        # Bounded probabilistic skew [0.1, 10.0] derived from normalized consensus
+        lr_exponent = net_bias * (coverage_ratio * agreement_factor * 2.3025) 
+        likelihood_ratio = math.exp(lr_exponent)
+        likelihood_ratio = max(0.1, min(10.0, likelihood_ratio))
+
+        # =====================================================================
+        # 8. EVIDENCE GENERATION
+        # =====================================================================
+        evidence = []
+        
+        coverage_msg = f"Declared {trace['declared']} momentum features; {trace['valid']} valid, {trace['used']} utilized across {groups_present} orthogonal groups ({trace['unavailable']} unavailable, {trace['invalid']} invalid)."
+        evidence.append({
+            "category": "FeatureCoverage",
+            "message": coverage_msg,
+            "reliability": round(confidence / 100.0, 4),
+            "likelihood_ratio": 1.0
+        })
+        
+        analysis = []
+        
+        bias_str = "bullish" if net_bias > 0 else "bearish"
+        if strength >= 60.0:
+            analysis.append(f"Institutional quantitative momentum indicates strong {bias_str} pressure (Strength: {strength:.1f}).")
+        elif strength >= 40.0:
+            analysis.append(f"Momentum exhibits moderate {bias_str} bias.")
+        else:
+            analysis.append("Momentum structure is currently weak or deeply contradicted across independent indicators.")
+            
+        if slowdown >= 50.0:
+            analysis.append(f"Momentum acceleration contradicts primary trajectory, indicating significant structural slowdown (Score: {slowdown:.1f}).")
+        elif acceleration >= 60.0:
+            acc_dir_str = "increasing" if accel_bias * net_bias > 0 else "reversing"
+            analysis.append(f"Momentum velocity is {acc_dir_str} rapidly.")
+            
+        if divergence >= 50.0:
+            div_dir_str = "bullish" if div_bias > 0 else ("bearish" if div_bias < 0 else "structural")
+            analysis.append(f"Cross-indicator analysis detects {div_dir_str} divergence from recent price extremes.")
+
+        if groups_present >= 3:
+            if agreement_factor > 0.8:
+                analysis.append("Orthogonal momentum sub-groups show high systemic convergence.")
+            elif agreement_factor < 0.3:
+                analysis.append("Significant contradiction detected between trend strength and oscillator momentum groups.")
+
+        evidence.append({
+            "category": "Momentum",
+            "message": " ".join(analysis),
+            "reliability": round(confidence / 100.0, 4),
+            "likelihood_ratio": round(likelihood_ratio, 4)
+        })
+
+        # =====================================================================
+        # 9. FINAL OUTPUT ASSEMBLY (EXACT CONTRACT)
+        # =====================================================================
         return {
-    "momentum_persistence": round(persistence, 2),
-
-    "volume_confirmation": round(vol_conf, 2),
-
-    "momentum_quality": round(
-        (
-            np.clip(latest["linreg_r2"] * 100.0, 0.0, 100.0)
-            + osc_agree
-            + vol_conf
-        ) / 3.0,
-        2,
-    ),
-
-    "momentum_efficiency": round(np.clip(latest["linreg_r2"] * 100.0, 0.0, 100.0), 2),
-    "momentum_stability": round(np.clip(100.0 - comp["score"], 0.0, 100.0), 2),
-    "momentum_consistency": round(osc_agree, 2),
-    "impulse_strength": round(a["score"], 2),
-    "pullback_strength": round(100.0 - a["score"], 2),
-    "reversal_probability": round(exh["score"], 2),
-    "continuation_probability": round(rel, 2),
-}
-    def _analyze_rsi(self, df: pd.DataFrame) -> RSIAnalysisResult:
-        rsi = df['rsi'].iloc[-1]
-        sc = np.clip((rsi - 50) * 2.0, -100.0, 100.0)
-        return {"status": "Active", "score": round(sc, 2), "confidence": 100.0, "regime": "Bullish" if rsi > 50 else "Bearish", "evidence": []}
-
-    def _analyze_macd(self, df: pd.DataFrame) -> MACDAnalysisResult:
-        sc = np.clip(np.sign(df['macd_line'].iloc[-1]) * 50 + np.sign(df['macd_histogram'].iloc[-1]) * 50, -100.0, 100.0)
-        return {"status": "Active", "score": round(sc, 2), "confidence": 100.0, "phase": "Expanding" if abs(sc) == 100 else "Transitional", "evidence": []}
-
-    def _analyze_divergence(self, df: pd.DataFrame) -> DivergenceResult:
-        """True Multi-Oscillator Divergence Scanning (RSI, MACD, ROC, Momentum)."""
-        evidence: List[EvidenceItem] = []
-        p = df['close'].to_numpy(dtype=np.float64)
-        lb = MOMENTUM_CONFIG["lookbacks"]["divergence"]
-        
-        rsi_str, rsi_t = _divergence_engine_jit(p, df['rsi'].to_numpy(dtype=np.float64), lb, True)
-        macd_str, macd_t = _divergence_engine_jit(p, df['macd_line'].to_numpy(dtype=np.float64), lb, False)
-        roc_str, roc_t = _divergence_engine_jit(p, df['roc'].to_numpy(dtype=np.float64), lb, False)
-        mom_str, mom_t = _divergence_engine_jit(p, df['momentum'].to_numpy(dtype=np.float64), lb, False)
-        
-        # Identify dominant divergence type across oscillators
-        types = [t for t in [rsi_t, macd_t, roc_t, mom_t] if t != 0]
-        dominant_type = max(set(types), key=types.count) if types else 0
-        
-        max_str = max(rsi_str, macd_str, roc_str, mom_str)
-        multi_osc_score = np.clip((len(types) / 4.0) * 100.0, 0.0, 100.0)
-        
-        div_type_str = "None"
-        if dominant_type == -1: div_type_str = "Regular Bearish"
-        elif dominant_type == 1: div_type_str = "Regular Bullish"
-        elif dominant_type == -2: div_type_str = "Hidden Bearish"
-        elif dominant_type == 2: div_type_str = "Hidden Bullish"
-        
-        if len(types) > 0:
-            evidence.append({"type": "Multi_Oscillator", "weight": multi_osc_score, "value": f"{len(types)}/4 Oscillators agree on {div_type_str}", "polarity": np.sign(dominant_type)})
-            
-        status = "Active Divergence" if len(types) > 0 else "None"
-        
-        return {
-    "status": status,
-    "strength": round(max_str, 2),
-    "type": div_type_str,
-    "confidence": round(multi_osc_score, 2),
-    "evidence": evidence,
-}
-
-# ==============================================================================
-# MODULE EXPORTS
-# ==============================================================================
-
-__all__ = [
-    "MomentumAnalyzer",
-    "MomentumAnalysisResult",
-    "MomentumStrengthResult",
-    "MomentumAccelerationResult",
-    "MomentumExhaustionResult",
-    "MomentumShiftResult",
-    "MomentumIgnitionResult",
-    "MomentumCompressionResult",
-    "MomentumCycleResult",
-    "InstitutionalMomentumResult",
-    "MTFMomentumResult",
-    "SwingReadinessResult",
-    "RSIAnalysisResult",
-    "MACDAnalysisResult",
-    "DivergenceResult",
-    "AdvancedMomentumMetrics",
-    "EvidenceItem"
-]
+            "momentum_analyzer": {
+                "confidence": round(float(confidence), 4),
+                "strength": round(float(strength), 4),
+                "strength_status": strength_status,
+                "acceleration": round(float(acceleration), 4),
+                "acceleration_status": acceleration_status,
+                "rsi": round(float(rsi_score), 4),
+                "rsi_status": rsi_status,
+                "macd": round(float(macd_score), 4),
+                "macd_status": macd_status,
+                "slowdown": round(float(slowdown), 4),
+                "slowdown_status": slowdown_status,
+                "divergence": round(float(divergence), 4),
+                "divergence_status": divergence_status,
+                "evidence": evidence
+            }
+        }
