@@ -1,618 +1,343 @@
-"""
-GREEN BULL RIDER V6
-Layer-2: Quantitative Analyzer
-Module: trend_analyzer.py
-
-Final Institutional-grade Deterministic Trend Analyzer.
-Targeted Fixes Applied:
-- Clamped price vectors to prevent unbounded OHLC anomalies.
-- True RVOL magnitude boosting.
-- Clean separation of Feature Availability vs Analytical Utilization.
-- Tri-state (bullish/bearish/neutral) status mapping for true 50.0 handling.
-- Historical ATR normalization for slope accelerations.
-
-Strictly mapped to provided Pipeline Feature names. No DB mapping.
-Python 3.13 Compatible.
-"""
-
-import math
-import time
-import pandas as pd
 import numpy as np
+import pandas as pd
 from typing import Dict, Any
 
 class TrendAnalyzer:
-    def __init__(self):
-        self.analyzer_name = "trend_analyzer"
+    """
+    Green Bull Rider V6 - L1 Trend Analyzer (Final Institutional Architecture)
+    
+    Operates strictly on pipeline-routed feature blocks. Evaluates temporal 
+    persistence, structural coherence, and kinematic vectors using continuous 
+    mathematical functions and statistical Z-Scores. 
+    Zero retail crossover logic. Zero arbitrary classification thresholds.
+    """
 
-        # Explicit expected feature universe (Exact Pipeline Names)
-        self.feature_families = {
-            "PRICE": ['close', 'open', 'high', 'low'],
-            "MA": ['sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_50', 'ema_100', 'ema_200', 'vwap'],
-            "DMI": ['adx_14', 'plus_di', 'minus_di', 'dx', 'supertrend_trend'],
-            "MOMENTUM": ['rsi_14', 'macd', 'macd_signal', 'macd_hist', 'roc_12', 'cci_20', 'mom_10', 'williams_r', 'stoch_k', 'stoch_d'],
-            "VOLATILITY": ['atr_14', 'bb_width', 'bb_percent_b', 'bb_squeeze'],
-            "VOLUME": ['volume', 'rvol_20', 'obv', 'obv_roc', 'cmf_20', 'mfi_14', 'delta_volume'],
-            "SMC": ['smc_trend', 'bos_up', 'bos_down', 'choch_up', 'choch_down', 'liquidity_sweep'],
-            "MTF": ['daily_mid', 'weekly_mid', 'monthly_mid', 'yearly_mid']
+    def __init__(self):
+        # Statistical Standard Deviation Boundaries for mathematical classification
+        self.Z_MODERATE = 0.5
+        self.Z_SIGNIFICANT = 1.0
+        self.Z_EXTREME = 2.0
+        self.EPSILON = 1e-8
+
+    def analyze(self, feature_blocks: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
+        """
+        Executes structural trend analysis dynamically on the provided window.
+        Expects Pipeline to provide explicit feature grouping:
+        - 'adaptive': kama, alma, t3, vidya, mcginley, hma, dema, tema, trima, zlema
+        - 'baseline': sma, ema, wma, vwma, smma, lsma
+        - 'regression_fit': r_squared, adjusted_r_squared, regression_r2, linear_regression_r2
+        - 'regression_slope': regression_slope, linear_regression_slope, rolling_slope, trend_angle, slope_percentage
+        - 'regime': supertrend, supertrend_trend
+        - 'momentum': adx_14, plus_di, minus_di, dx
+        - 'price': close, regression_value, linear_regression_value, regression_intercept
+        """
+        if not feature_blocks:
+            return self._fallback_contract()
+
+        # 1. INDIVIDUAL FEATURE BEHAVIOR TRACKING (Vectorized, Multi-Period)
+        adaptive_behavior = self._track_adaptive_coherence(feature_blocks.get("adaptive"))
+        baseline_behavior = self._track_spatial_distribution(feature_blocks.get("baseline"))
+        regression_behavior = self._track_regression_persistence(
+            feature_blocks.get("regression_fit"), 
+            feature_blocks.get("regression_slope")
+        )
+        regime_behavior = self._track_regime_stability(feature_blocks.get("regime"))
+        momentum_behavior = self._track_kinematic_momentum(feature_blocks.get("momentum"))
+
+        # 2. STRUCTURAL COHERENCE & MULTI-HORIZON EVIDENCE
+        direction = self._synthesize_direction(adaptive_behavior, regression_behavior, regime_behavior)
+        regime = self._synthesize_regime(baseline_behavior, regression_behavior, direction)
+        
+        # 3. MATHEMATICAL STRENGTH & MOMENTUM CONFIRMATION
+        strength = self._calculate_vector_strength(regression_behavior, adaptive_behavior, baseline_behavior)
+        momentum_conf = self._confirm_kinematic_momentum(momentum_behavior, direction)
+        
+        # 4. CONTINUOUS TREND CHANGE CALCULATION
+        tc_status, tc_dir, tc_level = self._calculate_structural_deterioration(
+            regression_behavior, baseline_behavior, adaptive_behavior, direction
+        )
+
+        alignment = self._evaluate_cross_block_alignment(
+            adaptive_behavior, regression_behavior, regime_behavior
+        )
+        
+        confidence = self._compute_statistical_confidence(
+            regression_behavior, adaptive_behavior, baseline_behavior
+        )
+
+        # 5. EXACT LOCKED JSON CONTRACT
+        return {
+            "direction": direction,
+            "regime": regime,
+            "strength": strength,
+            "alignment": alignment,
+            "momentum_confirmation": momentum_conf,
+            "trend_change": {
+                "status": tc_status,
+                "direction": tc_dir,
+                "level": tc_level
+            },
+            "confidence": confidence
+        }
+
+    # ==========================================
+    # BEHAVIORAL TRACKING (Mathematical Core)
+    # ==========================================
+
+    def _track_adaptive_coherence(self, df: pd.DataFrame) -> dict:
+        """Measures cross-sectional agreement (coherence) among adaptive features via Z-Scores."""
+        if df is None or df.empty or len(df.columns) < 2:
+            return {"coherence_z": 0.0, "vector_velocity_z": 0.0, "acceleration_z": 0.0}
+
+        matrix = df.ffill().bfill().to_numpy()
+        
+        # 1st and 2nd Derivatives (Velocity and Acceleration of the adaptive block)
+        velocity = np.gradient(matrix, axis=0)
+        acceleration = np.gradient(velocity, axis=0)
+        
+        cross_mean_vel = np.nanmean(velocity, axis=1)
+        cross_mean_acc = np.nanmean(acceleration, axis=1)
+        cross_variance = np.nanvar(velocity, axis=1)
+        
+        # Z-Scores relative to the current historical window
+        vel_z = self._calculate_z_score(cross_mean_vel)
+        acc_z = self._calculate_z_score(cross_mean_acc)
+        
+        # Coherence (Inverted Variance Z-Score): Negative variance Z-score means tighter than average
+        var_z = self._calculate_z_score(cross_variance)
+        coherence_z = -var_z 
+
+        return {
+            "coherence_z": coherence_z,
+            "vector_velocity_z": vel_z,
+            "acceleration_z": acc_z
+        }
+
+    def _track_spatial_distribution(self, df: pd.DataFrame) -> dict:
+        """Tracks the spatial expansion/compression of baseline structural features."""
+        if df is None or df.empty or len(df.columns) < 2:
+            return {"expansion_velocity_z": 0.0, "current_variance": 0.0, "peak_variance": 0.0}
+
+        matrix = df.ffill().bfill().to_numpy()
+        spatial_variance_series = np.nanvar(matrix, axis=1)
+        
+        expansion_velocity = np.gradient(spatial_variance_series)
+        expansion_velocity_z = self._calculate_z_score(expansion_velocity)
+        
+        return {
+            "expansion_velocity_z": expansion_velocity_z,
+            "current_variance": spatial_variance_series[-1] if len(spatial_variance_series) > 0 else 0.0,
+            "peak_variance": np.nanmax(spatial_variance_series) if len(spatial_variance_series) > 0 else 0.0
+        }
+
+    def _track_regression_persistence(self, fit_df: pd.DataFrame, slope_df: pd.DataFrame) -> dict:
+        """Evaluates the historical persistence of structural fit (R2) and trajectory of slopes."""
+        res = {
+            "fit_z": 0.0, "fit_trajectory_z": 0.0, "slope_z": 0.0, 
+            "current_fit": 0.0, "peak_fit": 0.0
         }
         
-        self.expected_features = [feat for family in self.feature_families.values() for feat in family]
+        if fit_df is not None and not fit_df.empty:
+            fit_matrix = fit_df.ffill().bfill().to_numpy()
+            mean_fit_series = np.nanmean(fit_matrix, axis=1)
+            fit_trajectory = np.gradient(mean_fit_series)
+            
+            res["fit_z"] = self._calculate_z_score(mean_fit_series)
+            res["fit_trajectory_z"] = self._calculate_z_score(fit_trajectory)
+            res["current_fit"] = mean_fit_series[-1] if len(mean_fit_series) > 0 else 0.0
+            res["peak_fit"] = np.nanmax(mean_fit_series) if len(mean_fit_series) > 0 else 0.0
+            
+        if slope_df is not None and not slope_df.empty:
+            slope_matrix = slope_df.ffill().bfill().to_numpy()
+            mean_slope_series = np.nanmean(slope_matrix, axis=1)
+            res["slope_z"] = self._calculate_z_score(mean_slope_series)
+            
+        return res
 
-    def analyze(self, feature_history: pd.DataFrame, fundamental_data: Dict[str, Any] = None) -> Dict[str, Any]:
-        start_time = time.perf_counter()
+    def _track_regime_stability(self, df: pd.DataFrame) -> dict:
+        """Evaluates regime continuous kinematics (e.g., gradient of supertrend)."""
+        if df is None or df.empty:
+            return {"regime_velocity_z": 0.0}
+            
+        matrix = df.ffill().bfill().to_numpy()
+        mean_regime = np.nanmean(matrix, axis=1)
         
-        utilized_features = []
-        valid_features = []
-        missing_features = []
-        invalid_features = []
-        calculation_trace = {}
+        regime_velocity = np.gradient(mean_regime)
+        regime_velocity_z = self._calculate_z_score(regime_velocity)
         
-        try:
-            if feature_history is None or not isinstance(feature_history, pd.DataFrame) or feature_history.empty:
-                raise ValueError("Feature history dataframe is empty or None.")
+        return {"regime_velocity_z": regime_velocity_z}
 
-            feature_expected_count = len(self.expected_features)
+    def _track_kinematic_momentum(self, df: pd.DataFrame) -> dict:
+        """Tracks continuous acceleration of momentum indicators, ignoring absolute thresholds."""
+        if df is None or df.empty:
+            return {"momentum_velocity_z": 0.0, "momentum_acceleration_z": 0.0}
             
-            hist_len = len(feature_history)
-            latest = feature_history.iloc[-1]
-            prev1 = feature_history.iloc[-2] if hist_len > 1 else None
-            prev3 = feature_history.iloc[-4] if hist_len >= 4 else None
-
-            # 1. Feature Validation & Extraction
-            curr_data, prev1_data, prev3_data = {}, {}, {}
-            
-            for feature in self.expected_features:
-                val = latest.get(feature)
-                if val is None or pd.isna(val) or not pd.api.types.is_scalar(val):
-                    if val is not None and not pd.api.types.is_scalar(val):
-                        invalid_features.append(feature)
-                    else:
-                        missing_features.append(feature)
-                    curr_data[feature] = None
-                    prev1_data[feature] = None
-                    prev3_data[feature] = None
-                else:
-                    try:
-                        f_val = float(val)
-                        if math.isfinite(f_val):
-                            curr_data[feature] = f_val
-                            valid_features.append(feature)
-                            
-                            p1 = prev1.get(feature) if prev1 is not None else None
-                            p3 = prev3.get(feature) if prev3 is not None else None
-                            
-                            prev1_data[feature] = float(p1) if pd.api.types.is_scalar(p1) and pd.notna(p1) and math.isfinite(float(p1)) else None
-                            prev3_data[feature] = float(p3) if pd.api.types.is_scalar(p3) and pd.notna(p3) and math.isfinite(float(p3)) else None
-                        else:
-                            invalid_features.append(feature)
-                            curr_data[feature] = None
-                    except (ValueError, TypeError):
-                        invalid_features.append(feature)
-                        curr_data[feature] = None
-
-            close = curr_data.get('close')
-            if close is None or close <= 0:
-                raise ValueError("Critical Feature Missing: Valid 'close' price required.")
-
-            # ATR Extraction with historical context
-            atr = curr_data.get('atr_14')
-            if atr is None or atr <= 0:
-                atr = close * 0.015
-            else:
-                utilized_features.append('atr_14')
-                
-            p1_atr = prev1_data.get('atr_14') if prev1_data.get('atr_14') else atr
-            
-            # 2. EVIDENCE ENGINES (Magnitude-Aware Continuous Vectors: -1.0 to +1.0)
-            
-            # --- A. PRICE STRUCTURE ENGINE ---
-            price_vectors = []
-            f_price = []
-            
-            if curr_data.get('open') is not None and curr_data.get('high') is not None and curr_data.get('low') is not None:
-                h, l, o = curr_data['high'], curr_data['low'], curr_data['open']
-                c_range = max(h - l, 1e-5)
-                # FIX: Clamped vectors to prevent OHLC anomaly explosion
-                body_vec = self._clamp((close - o) / c_range, -1.0, 1.0)
-                close_pos = self._clamp(((close - l) / c_range - 0.5) * 2.0, -1.0, 1.0)
-                price_vectors.extend([body_vec, close_pos])
-                f_price.extend(['open', 'high', 'low', 'close'])
-            
-            if curr_data.get('vwap') is not None:
-                dist_vwap = (close - curr_data['vwap']) / atr
-                price_vectors.append(math.tanh(dist_vwap))
-                f_price.append('vwap')
-
-            price_vector = np.mean(price_vectors) if price_vectors else 0.0
-            utilized_features.extend(f_price)
-            calculation_trace['price_structure'] = {
-                "features_used": list(set(f_price)),
-                "vector_value": float(price_vector),
-                "score": self._vec_to_score(price_vector),
-                "method": "Clamped ATR-normalized distance and continuous candle range positioning."
-            }
-
-            # --- B. MA STRUCTURE ENGINE ---
-            ma_vectors = []
-            ma_strengths = []
-            f_ma = []
-            
-            ma_list = ['sma_20', 'sma_50', 'sma_100', 'sma_200', 'ema_20', 'ema_50', 'ema_100', 'ema_200']
-            for ma_name in ma_list:
-                ma_val = curr_data.get(ma_name)
-                if ma_val is not None:
-                    dist_z = (close - ma_val) / atr
-                    ma_vectors.append(math.tanh(dist_z / 2.0))
-                    f_ma.append(ma_name)
-                    
-                    # FIX: Historical ATR matching for slope extraction
-                    if prev1_data.get(ma_name) is not None:
-                        curr_slope = (ma_val - prev1_data[ma_name]) / atr
-                        ma_vectors.append(math.tanh(curr_slope * 5.0))
-                        ma_strengths.append(abs(math.tanh(curr_slope * 10.0)))
-                        
-                        if prev3_data.get(ma_name) is not None:
-                            prev_slope = (prev1_data[ma_name] - prev3_data[ma_name]) / (p1_atr * 2.0)
-                            accel = curr_slope - prev_slope
-                            ma_vectors.append(math.tanh(accel * 5.0))
-
-            ma_vector = np.mean(ma_vectors) if ma_vectors else 0.0
-            ma_str = self._clamp(np.mean(ma_strengths) * 100.0, 0.0, 100.0) if ma_strengths else 0.0
-            utilized_features.extend(f_ma)
-            calculation_trace['ma_structure'] = {
-                "features_used": list(set(f_ma)),
-                "vector_value": float(ma_vector),
-                "score": self._vec_to_score(ma_vector),
-                "method": "Magnitude-aware Tanh mapping of MA distance, slope, and acceleration."
-            }
-
-            # --- C. DMI / ADX ENGINE ---
-            dmi_vectors = []
-            dmi_strengths = []
-            f_dmi = []
-            
-            if curr_data.get('plus_di') is not None and curr_data.get('minus_di') is not None:
-                di_spread = curr_data['plus_di'] - curr_data['minus_di']
-                dmi_vectors.append(math.tanh(di_spread / 15.0)) 
-                f_dmi.extend(['plus_di', 'minus_di'])
-
-            if curr_data.get('adx_14') is not None:
-                adx = curr_data['adx_14']
-                adx_norm = self._clamp(math.tanh((adx - 15.0) / 20.0), 0.0, 1.0)
-                
-                if prev1_data.get('adx_14') is not None:
-                    adx_slope = adx - prev1_data['adx_14']
-                    if adx_slope > 0: adx_norm = min(1.0, adx_norm * 1.2)
-                    
-                dmi_strengths.append(self._clamp(adx_norm, 0.0, 1.0))
-                f_dmi.append('adx_14')
-                
-            if curr_data.get('dx') is not None:
-                utilized_features.append('dx')
-                f_dmi.append('dx')
-                
-            if curr_data.get('supertrend_trend') is not None:
-                dmi_vectors.append(self._clamp(curr_data['supertrend_trend'], -1.0, 1.0))
-                f_dmi.append('supertrend_trend')
-
-            dmi_vector = np.mean(dmi_vectors) if dmi_vectors else 0.0
-            dmi_str = np.mean(dmi_strengths) if dmi_strengths else 0.0
-            utilized_features.extend(f_dmi)
-            calculation_trace['dmi_structure'] = {
-                "features_used": list(set(f_dmi)),
-                "vector_value": float(dmi_vector),
-                "score": self._vec_to_score(dmi_vector),
-                "method": "Continuous DI spread evaluation and normalized ADX momentum."
-            }
-
-            # --- D. MOMENTUM ENGINE ---
-            mom_vectors = []
-            f_mom = []
-            
-            if curr_data.get('rsi_14') is not None:
-                mom_vectors.append(math.tanh((curr_data['rsi_14'] - 50.0) / 20.0))
-                f_mom.append('rsi_14')
-                
-            if curr_data.get('williams_r') is not None:
-                mom_vectors.append(math.tanh((curr_data['williams_r'] + 50.0) / 25.0))
-                f_mom.append('williams_r')
-                
-            if curr_data.get('stoch_k') is not None and curr_data.get('stoch_d') is not None:
-                k, d = curr_data['stoch_k'], curr_data['stoch_d']
-                mom_vectors.append(math.tanh((k - 50.0) / 25.0))
-                mom_vectors.append(math.tanh((k - d) / 10.0))
-                f_mom.extend(['stoch_k', 'stoch_d'])
-                
-            if curr_data.get('macd') is not None and curr_data.get('macd_signal') is not None:
-                macd, signal = curr_data['macd'], curr_data['macd_signal']
-                mom_vectors.append(math.tanh((macd / atr) * 5.0))
-                mom_vectors.append(math.tanh(((macd - signal) / atr) * 10.0))
-                f_mom.extend(['macd', 'macd_signal'])
-                
-            if curr_data.get('macd_hist') is not None:
-                mom_vectors.append(math.tanh((curr_data['macd_hist'] / atr) * 15.0))
-                f_mom.append('macd_hist')
-
-            if curr_data.get('roc_12') is not None:
-                mom_vectors.append(math.tanh(curr_data['roc_12'] / 5.0))
-                f_mom.append('roc_12')
-                
-            if curr_data.get('mom_10') is not None:
-                mom_vectors.append(math.tanh(curr_data['mom_10'] / atr))
-                f_mom.append('mom_10')
-                
-            if curr_data.get('cci_20') is not None:
-                mom_vectors.append(math.tanh(curr_data['cci_20'] / 150.0))
-                f_mom.append('cci_20')
-
-            mom_vector = np.mean(mom_vectors) if mom_vectors else 0.0
-            utilized_features.extend(f_mom)
-            calculation_trace['momentum'] = {
-                "features_used": list(set(f_mom)),
-                "vector_value": float(mom_vector),
-                "score": self._vec_to_score(mom_vector),
-                "method": "Oscillators normalized via Tanh and ATR to continuous vectors."
-            }
-
-            # --- E. VOLUME & FLOW ENGINE ---
-            vol_vectors = []
-            f_vol = []
-            
-            if curr_data.get('cmf_20') is not None:
-                vol_vectors.append(math.tanh(curr_data['cmf_20'] / 0.15))
-                f_vol.append('cmf_20')
-                
-            if curr_data.get('mfi_14') is not None:
-                vol_vectors.append(math.tanh((curr_data['mfi_14'] - 50.0) / 20.0))
-                f_vol.append('mfi_14')
-                
-            if curr_data.get('obv_roc') is not None:
-                vol_vectors.append(math.tanh(curr_data['obv_roc'] * 5.0))
-                f_vol.extend(['obv_roc'])
-                if curr_data.get('obv') is not None:
-                    utilized_features.append('obv')
-
-            if curr_data.get('delta_volume') is not None and curr_data.get('volume') is not None and curr_data['volume'] > 0:
-                delta_ratio = curr_data['delta_volume'] / curr_data['volume']
-                vol_vectors.append(math.tanh(delta_ratio * 3.0))
-                f_vol.extend(['delta_volume', 'volume'])
-                
-            vol_magnitude = 1.0
-            if curr_data.get('rvol_20') is not None:
-                rvol = curr_data['rvol_20']
-                # FIX: Real RVOL amplification, clamped to avoid infinite blowup
-                vol_magnitude = self._clamp(rvol, 0.5, 2.0)
-                f_vol.append('rvol_20')
-
-            vol_vector = self._clamp(np.mean(vol_vectors) * vol_magnitude if vol_vectors else 0.0, -1.0, 1.0)
-            utilized_features.extend(f_vol)
-            calculation_trace['volume_flow'] = {
-                "features_used": list(set(f_vol)),
-                "vector_value": float(vol_vector),
-                "score": self._vec_to_score(vol_vector),
-                "method": "CMF, MFI, Delta and OBV flow modulated directly by RVOL multiplier."
-            }
-
-            # --- F. VOLATILITY ENGINE ---
-            f_vty = []
-            bb_squeeze_penalty = 0.0
-            if curr_data.get('bb_squeeze') is not None and float(curr_data['bb_squeeze']) > 0.0:
-                bb_squeeze_penalty = 0.3
-                f_vty.append('bb_squeeze')
-            if curr_data.get('bb_width') is not None:
-                utilized_features.append('bb_width')
-                f_vty.append('bb_width')
-                
-            utilized_features.extend(f_vty)
-
-            # --- G. SMC & STRUCTURE ENGINE ---
-            smc_vectors = []
-            f_smc = []
-            
-            if curr_data.get('smc_trend') is not None:
-                smc_vectors.append(self._clamp(curr_data['smc_trend'], -1.0, 1.0))
-                f_smc.append('smc_trend')
-                
-            if curr_data.get('bos_up') is not None and curr_data['bos_up'] > 0:
-                smc_vectors.append(1.0); f_smc.append('bos_up')
-            if curr_data.get('bos_down') is not None and curr_data['bos_down'] > 0:
-                smc_vectors.append(-1.0); f_smc.append('bos_down')
-                
-            if curr_data.get('choch_up') is not None and curr_data['choch_up'] > 0:
-                smc_vectors.append(0.5); f_smc.append('choch_up')
-            if curr_data.get('choch_down') is not None and curr_data['choch_down'] > 0:
-                smc_vectors.append(-0.5); f_smc.append('choch_down')
-                
-            if curr_data.get('liquidity_sweep') is not None and curr_data['liquidity_sweep'] != 0:
-                # FIX: Contextual liquidity sweep polarity resolution
-                swp_val = curr_data['liquidity_sweep']
-                if curr_data.get('open') is not None and close > curr_data['open']:
-                    smc_vectors.append(abs(swp_val) * 0.5) # Swept bottom, rejected upward
-                elif curr_data.get('open') is not None and close < curr_data['open']:
-                    smc_vectors.append(-abs(swp_val) * 0.5) # Swept top, rejected downward
-                else:
-                    smc_vectors.append(self._clamp(swp_val, -1.0, 1.0) * 0.25)
-                f_smc.append('liquidity_sweep')
-
-            smc_vector = np.mean(smc_vectors) if smc_vectors else 0.0
-            utilized_features.extend(f_smc)
-            calculation_trace['smc_structure'] = {
-                "features_used": list(set(f_smc)),
-                "vector_value": float(smc_vector),
-                "score": self._vec_to_score(smc_vector),
-                "method": "Structural breakouts and context-aware liquidity absorption vectors."
-            }
-
-            # --- H. MULTI-TIMEFRAME ENGINE ---
-            mtf_vectors = []
-            f_mtf = []
-            
-            # FIX: Syntax and inclusion of yearly_mid
-            mtf_weights = {
-                'daily_mid': 0.1, 
-                'weekly_mid': 0.2, 
-                'monthly_mid': 0.3, 
-                'yearly_mid': 0.4
-            }
-            w_sum, w_tot = 0.0, 0.0
-            
-            for mtf_feat, w in mtf_weights.items():
-                if curr_data.get(mtf_feat) is not None:
-                    v = math.tanh((close - curr_data[mtf_feat]) / atr)
-                    mtf_vectors.append(v)
-                    w_sum += v * w
-                    w_tot += w
-                    f_mtf.append(mtf_feat)
-                    
-            mtf_vector = (w_sum / w_tot) if w_tot > 0 else 0.0
-            mtf_score = self._vec_to_score(mtf_vector)
-            
-            mtf_aligned = (np.std(mtf_vectors) < 0.4 and abs(mtf_vector) > 0.3) if len(mtf_vectors) > 1 else False
-            
-            utilized_features.extend(f_mtf)
-            calculation_trace['multi_timeframe'] = {
-                "features_used": list(set(f_mtf)),
-                "vector_value": float(mtf_vector),
-                "score": mtf_score,
-                "method": "Hierarchically weighted continuous divergence mapping across macro periods."
-            }
-
-            # --- I. MACRO TREND ENGINE ---
-            mac_vectors = []
-            f_mac = []
-            
-            for m in ['sma_200', 'ema_200', 'monthly_mid', 'yearly_mid']:
-                if curr_data.get(m) is not None:
-                    mac_vectors.append(math.tanh((close - curr_data[m]) / (atr * 2.0)))
-                    f_mac.append(m)
-                    
-            mac_vector = np.mean(mac_vectors) if mac_vectors else 0.0
-            macro_trend_score = self._vec_to_score(mac_vector)
-            utilized_features.extend(f_mac)
-
-            # --- J. MULTI-FACTOR EXHAUSTION ENGINE ---
-            exh_factors = []
-            exh_used = []
-            
-            if curr_data.get('rsi_14') is not None:
-                r = curr_data['rsi_14']
-                if r > 70: exh_factors.append(math.tanh((r - 70) / 15.0))
-                elif r < 30: exh_factors.append(math.tanh((30 - r) / 15.0))
-                exh_used.append('rsi_14')
-                
-            if curr_data.get('williams_r') is not None:
-                wr = curr_data['williams_r']
-                if wr > -20: exh_factors.append(math.tanh((wr + 20) / 15.0))
-                elif wr < -80: exh_factors.append(math.tanh((-80 - wr) / 15.0))
-                exh_used.append('williams_r')
-                
-            if curr_data.get('ema_20') is not None:
-                dist = abs(close - curr_data['ema_20']) / atr
-                if dist > 2.5: exh_factors.append(math.tanh((dist - 2.5) / 2.0))
-                exh_used.append('ema_20')
-                
-            if curr_data.get('bb_percent_b') is not None:
-                pctb = curr_data['bb_percent_b']
-                if pctb > 1.0: exh_factors.append(math.tanh((pctb - 1.0) / 0.5))
-                elif pctb < 0.0: exh_factors.append(math.tanh(abs(pctb) / 0.5))
-                exh_used.append('bb_percent_b')
-
-            if curr_data.get('macd_hist') is not None and prev1_data.get('macd_hist') is not None and prev1_data.get('close') is not None:
-                hist_slope = curr_data['macd_hist'] - prev1_data['macd_hist']
-                price_slope = close - prev1_data['close']
-                if (price_slope > 0 > hist_slope and curr_data['macd_hist'] > 0) or (price_slope < 0 < hist_slope and curr_data['macd_hist'] < 0):
-                    exh_factors.append(0.8)
-                exh_used.append('macd_hist')
-                
-            exhaustion_score = self._clamp(np.mean(exh_factors) * 100.0 if exh_factors else 0.0, 0.0, 100.0)
-            calculation_trace['exhaustion'] = {
-                "features_used": list(set(exh_used)),
-                "score": exhaustion_score,
-                "method": "Oscillator extremes, structural extension, and momentum divergence."
-            }
-
-            # --- K. GLOBAL SYNTHESIS & SIGNAL AGREEMENT ---
-            families = [
-                (price_vector, 0.15),
-                (ma_vector, 0.20),
-                (dmi_vector, 0.15),
-                (mom_vector, 0.15),
-                (vol_vector, 0.15),
-                (smc_vector, 0.10),
-                (mtf_vector, 0.10)
-            ]
-            
-            w_sum, pol_sum = 0.0, 0.0
-            active_vectors = []
-            
-            for vec, weight in families:
-                if vec != 0.0:
-                    pol_sum += vec * weight
-                    w_sum += weight
-                    active_vectors.append(vec)
-                    
-            net_vector = pol_sum / w_sum if w_sum > 0 else 0.0
-            direction_score = self._vec_to_score(net_vector)
-            
-            # Signal Agreement (Low standard deviation = High Agreement)
-            signal_agreement = 1.0
-            if len(active_vectors) > 1:
-                vec_std = np.std(active_vectors)
-                signal_agreement = self._clamp(1.0 - float(vec_std), 0.0, 1.0)
-
-            # Strength Synthesis
-            base_strength = (dmi_str * 0.5) + ((ma_str / 100.0) * 0.5)
-            strength_score = self._clamp(base_strength * signal_agreement * 100.0, 0.0, 100.0)
-            
-            # Quality Synthesis
-            quality_raw = signal_agreement * (1.0 - bb_squeeze_penalty)
-            quality_score = self._clamp(quality_raw * 100.0, 0.0, 100.0)
-            
-            # Continuation Synthesis
-            cont_raw = (quality_score / 100.0) * (strength_score / 100.0) * (1.0 - (exhaustion_score / 100.0))
-            continuation_score = self._clamp(cont_raw * 100.0, 0.0, 100.0)
-            
-            # Confidence Synthesis (FIX: Safe derivation from Utilization and Agreement)
-            unique_utilized = list(set(utilized_features))
-            utilization_percent = len(unique_utilized) / max(1, feature_expected_count)
-            
-            if utilization_percent == 0.0:
-                confidence = 0.0
-            else:
-                conf_raw = (utilization_percent * 50.0) + (signal_agreement * 50.0)
-                confidence = self._clamp(conf_raw, 0.0, 100.0)
-
-            # --- L. STATUS MAPPING (FIX: Tri-state direction mapping) ---
-            if direction_score > 55.0: direction_status = "bullish"
-            elif direction_score < 45.0: direction_status = "bearish"
-            else: direction_status = "neutral"
-
-            strength_status = "strong" if strength_score >= 50.0 else "weak"
-            quality_status = "high" if quality_score >= 50.0 else "choppy"
-            continuation_status = "likely" if continuation_score >= 50.0 else "unlikely"
-            multi_timeframe_status = "aligned" if mtf_aligned else "divergent"
-            exhaustion_status = "high" if exhaustion_score >= 50.0 else "low"
-            
-            if macro_trend_score > 55.0: macro_trend_status = "bullish"
-            elif macro_trend_score < 45.0: macro_trend_status = "bearish"
-            else: macro_trend_status = "neutral"
-
-            # --- M. EVIDENCE & LIKELIHOOD RATIO ---
-            norm_prob = (net_vector + 1.0) / 2.0
-            prob_safe = self._clamp(norm_prob, 0.01, 0.99)
-            likelihood_ratio = float(self._clamp(prob_safe / (1.0 - prob_safe), 0.01, 100.0))
-
-            evidence_msg = (
-                f"Net trend direction is {direction_status} ({round(direction_score, 1)}%) backed by {len(active_vectors)} coherent structural families. "
-                f"Trend strength is {strength_status} ({round(strength_score, 1)}%) mapping to a {quality_status} quality environment. "
-                f"Multi-timeframe hierarchy is {multi_timeframe_status}. "
-            )
-            if exhaustion_score >= 50.0:
-                evidence_msg += f"Elevated multi-factor exhaustion ({round(exhaustion_score, 1)}%) degrades continuation probability to {continuation_status}."
-            else:
-                evidence_msg += f"Healthy extension profiles yield a {continuation_status} continuation outcome."
-
-            evidence_node = {
-                "category": "Trend",
-                "message": evidence_msg,
-                "reliability": round(confidence / 100.0, 2),
-                "likelihood_ratio": round(likelihood_ratio, 2)
-            }
-
-            execution_time_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
-            
-            trace_block = {
-                "execution_time_ms": execution_time_ms,
-                "feature_expected_count": feature_expected_count,
-                "feature_valid_count": len(valid_features),
-                "feature_utilized_count": len(unique_utilized),
-                "feature_utilization_percent": round(utilization_percent * 100.0, 2),
-                "used_features": unique_utilized,
-                "missing_features": missing_features,
-                "invalid_features": invalid_features,
-                "calculation_trace": calculation_trace
-            }
-
-            # STRICT OUTPUT CONTRACT PRESERVATION
-            return {
-                "trend_analyzer": {
-                    "confidence": round(confidence, 2),
-                    "direction": round(direction_score, 2),
-                    "direction_status": direction_status,
-                    "strength": round(strength_score, 2),
-                    "strength_status": strength_status,
-                    "quality": round(quality_score, 2),
-                    "quality_status": quality_status,
-                    "continuation": round(continuation_score, 2),
-                    "continuation_status": continuation_status,
-                    "multi_timeframe": round(mtf_score, 2),
-                    "multi_timeframe_status": multi_timeframe_status,
-                    "exhaustion": round(exhaustion_score, 2),
-                    "exhaustion_status": exhaustion_status,
-                    "macro_trend": round(macro_trend_score, 2),
-                    "macro_trend_status": macro_trend_status,
-                    "evidence": [evidence_node],
-                    "trace": trace_block
-                }
-            }
-
-        except Exception as e:
-            return self._build_fallback(start_time, str(e))
-
-    # ==========================================================
-    # PRIVATE HELPER METHODS
-    # ==========================================================
-
-    def _clamp(self, value: float, min_val: float, max_val: float) -> float:
-        """Safely bounds a numeric value handling NaNs and Infs."""
-        if math.isnan(value) or math.isinf(value):
-            return min_val
-        return max(min_val, min(value, max_val))
-
-    def _vec_to_score(self, vector: float) -> float:
-        """Maps a -1.0 to +1.0 vector to a 0.0 to 100.0 score safely."""
-        safe_vec = self._clamp(vector, -1.0, 1.0)
-        return (safe_vec + 1.0) * 50.0
-
-    def _build_fallback(self, start_time: float, error_msg: str) -> Dict[str, Any]:
-        """Provides a strict, schema-compliant fallback output upon failure."""
+        matrix = df.ffill().bfill().to_numpy()
+        
+        velocity = np.gradient(matrix, axis=0)
+        acceleration = np.gradient(velocity, axis=0)
+        
+        mean_velocity = np.nanmean(velocity, axis=1)
+        mean_acceleration = np.nanmean(acceleration, axis=1)
+        
         return {
-            "trend_analyzer": {
-                "confidence": 0.0,
-                "direction": 50.0,
-                "direction_status": "neutral",
-                "strength": 0.0,
-                "strength_status": "weak",
-                "quality": 0.0,
-                "quality_status": "choppy",
-                "continuation": 0.0,
-                "continuation_status": "unlikely",
-                "multi_timeframe": 50.0,
-                "multi_timeframe_status": "divergent",
-                "exhaustion": 0.0,
-                "exhaustion_status": "low",
-                "macro_trend": 50.0,
-                "macro_trend_status": "neutral",
-                "evidence": [
-                    {
-                        "category": "Trend",
-                        "message": f"Trend analysis critical failure: {error_msg}",
-                        "reliability": 0.0,
-                        "likelihood_ratio": 1.0
-                    }
-                ],
-                "trace": {
-                    "execution_time_ms": round((time.perf_counter() - start_time) * 1000.0, 2),
-                    "feature_expected_count": len(self.expected_features),
-                    "feature_valid_count": 0,
-                    "feature_utilized_count": 0,
-                    "feature_utilization_percent": 0.0,
-                    "used_features": [],
-                    "missing_features": [],
-                    "invalid_features": [],
-                    "calculation_trace": {},
-                    "error": str(error_msg)
-                }
-            }
+            "momentum_velocity_z": self._calculate_z_score(mean_velocity),
+            "momentum_acceleration_z": self._calculate_z_score(mean_acceleration)
+        }
+
+    # ==========================================
+    # SYNTHESIS & EXACT CONTRACT MAPPING
+    # ==========================================
+
+    def _synthesize_direction(self, adapt: dict, reg: dict, regime_b: dict) -> str:
+        """Synthesizes direction using statistical significance (Z-Scores)."""
+        st_z = adapt["vector_velocity_z"]
+        mt_z = reg["slope_z"]
+        lt_z = regime_b["regime_velocity_z"]
+        
+        vectors = [st_z, mt_z, lt_z]
+        bullish_vectors = sum(1 for v in vectors if v > self.Z_MODERATE)
+        bearish_vectors = sum(1 for v in vectors if v < -self.Z_MODERATE)
+        
+        if bullish_vectors >= 2 and bearish_vectors == 0:
+            return "bullish"
+        if bearish_vectors >= 2 and bullish_vectors == 0:
+            return "bearish"
+            
+        if abs(mt_z) < self.Z_MODERATE and reg["fit_trajectory_z"] < -self.Z_MODERATE:
+            return "sideways"
+            
+        if bullish_vectors > 0 and bearish_vectors > 0:
+            return "mixed"
+            
+        return "transitional"
+
+    def _synthesize_regime(self, baseline: dict, reg: dict, direction: str) -> str:
+        """Synthesizes structural regime via continuous variance and fit tracking."""
+        if direction in ["bullish", "bearish"]:
+            if reg["fit_z"] > self.Z_MODERATE and baseline["expansion_velocity_z"] > self.Z_MODERATE:
+                return "strong_trend"
+            if reg["fit_z"] > -self.Z_MODERATE:
+                return "weak_trend"
+                
+        if baseline["expansion_velocity_z"] < -self.Z_SIGNIFICANT and reg["fit_z"] < -self.Z_MODERATE:
+            return "range"
+            
+        if reg["fit_trajectory_z"] < -self.Z_SIGNIFICANT:
+            return "transition"
+            
+        return "unknown"
+
+    def _calculate_vector_strength(self, reg: dict, adapt: dict, baseline: dict) -> str:
+        """Calculates strength strictly as the aggregate magnitude of converging statistical evidence."""
+        aggregate_z = abs(adapt["vector_velocity_z"]) + reg["fit_z"] + baseline["expansion_velocity_z"] + adapt["coherence_z"]
+        
+        if aggregate_z > (self.Z_EXTREME * 2): return "very_strong"
+        if aggregate_z > (self.Z_SIGNIFICANT * 2): return "strong"
+        if aggregate_z > self.Z_MODERATE: return "moderate"
+        if aggregate_z > -self.Z_SIGNIFICANT: return "weak"
+        return "very_weak"
+
+    def _confirm_kinematic_momentum(self, mom: dict, direction: str) -> str:
+        """Evaluates internal momentum based on kinematic acceleration of the momentum block."""
+        if direction in ["sideways", "unknown", "mixed", "transitional"]:
+            return "unconfirmed"
+            
+        vel_z = mom["momentum_velocity_z"]
+        acc_z = mom["momentum_acceleration_z"]
+        
+        is_accelerating = (direction == "bullish" and vel_z > self.Z_MODERATE and acc_z > 0) or \
+                          (direction == "bearish" and vel_z < -self.Z_MODERATE and acc_z < 0)
+                          
+        is_decelerating = (direction == "bullish" and vel_z > self.Z_MODERATE and acc_z < -self.Z_MODERATE) or \
+                          (direction == "bearish" and vel_z < -self.Z_MODERATE and acc_z > self.Z_MODERATE)
+
+        if is_accelerating:
+            return "confirmed"
+        if is_decelerating:
+            return "opposed"
+            
+        return "partially_confirmed"
+
+    def _calculate_structural_deterioration(self, reg: dict, baseline: dict, adapt: dict, direction: str) -> tuple:
+        """
+        Computes trend change mathematically based on continuous pure ratios:
+        Decay = 1.0 - (Current State / Peak State)
+        """
+        if direction not in ["bullish", "bearish"]:
+            return "none", "none", 0.0
+
+        tc_dir = "bearish" if direction == "bullish" else "bullish"
+        
+        # 1. Structural Fit Decay (R2 dropping from local peak)
+        fit_decay = 0.0
+        if reg["peak_fit"] > self.EPSILON:
+            fit_decay = max(0.0, 1.0 - (reg["current_fit"] / reg["peak_fit"]))
+            
+        # 2. Spatial Compression (Variance dropping from local peak)
+        variance_decay = 0.0
+        if baseline["peak_variance"] > self.EPSILON:
+            variance_decay = max(0.0, 1.0 - (baseline["current_variance"] / baseline["peak_variance"]))
+            
+        # Aggregate pure mathematical mean of decays
+        base_level = np.nanmean([fit_decay, variance_decay])
+        
+        # Kinematic Acceleration Penalty (Does acceleration oppose the trend?)
+        if (direction == "bullish" and adapt["acceleration_z"] < -self.Z_MODERATE) or \
+           (direction == "bearish" and adapt["acceleration_z"] > self.Z_MODERATE):
+            # Scale the level by the magnitude of opposing acceleration
+            base_level += min(0.5, abs(adapt["acceleration_z"]) / 10.0)
+            
+        tc_level = min(1.0, max(0.0, base_level))
+        
+        # Statistical boundary mapping for categorical output
+        if tc_level >= 0.8: status = "confirmed"
+        elif tc_level >= 0.5: status = "developing"
+        elif tc_level >= 0.2: status = "candidate"
+        else:
+            status = "none"
+            tc_level = 0.0
+            tc_dir = "none"
+            
+        return status, tc_dir, round(float(tc_level), 2)
+
+    def _evaluate_cross_block_alignment(self, adapt: dict, reg: dict, regime_b: dict) -> dict:
+        """Determines alignment dynamically across the feature blocks using Z-scores."""
+        def map_z_to_sign(z_val):
+            if z_val > self.Z_MODERATE: return "bullish"
+            if z_val < -self.Z_MODERATE: return "bearish"
+            return "neutral"
+            
+        return {
+            "short_term": map_z_to_sign(adapt["vector_velocity_z"]),
+            "medium_term": map_z_to_sign(reg["slope_z"]),
+            "long_term": map_z_to_sign(regime_b["regime_velocity_z"])
+        }
+
+    def _compute_statistical_confidence(self, reg: dict, adapt: dict, baseline: dict) -> str:
+        """Confidence derived from Structural Fit Z-Scores and Coherence Z-Scores."""
+        aggregate_conf_z = reg["fit_z"] + adapt["coherence_z"]
+        
+        if aggregate_conf_z > self.Z_EXTREME: return "very_high"
+        if aggregate_conf_z > self.Z_SIGNIFICANT: return "high"
+        if aggregate_conf_z > -self.Z_MODERATE: return "medium"
+        if aggregate_conf_z > -self.Z_SIGNIFICANT: return "low"
+        return "very_low"
+
+    def _calculate_z_score(self, series: np.ndarray) -> float:
+        """Helper to compute the Z-Score of the latest observation relative to the provided window."""
+        if len(series) == 0:
+            return 0.0
+        current_val = series[-1]
+        hist_mean = np.nanmean(series)
+        hist_std = np.nanstd(series) + self.EPSILON
+        return float((current_val - hist_mean) / hist_std)
+
+    def _fallback_contract(self) -> Dict[str, Any]:
+        return {
+            "direction": "unknown", "regime": "unknown", "strength": "very_weak",
+            "alignment": {"short_term": "unknown", "medium_term": "unknown", "long_term": "unknown"},
+            "momentum_confirmation": "unknown",
+            "trend_change": {"status": "none", "direction": "none", "level": 0.0},
+            "confidence": "very_low"
         }

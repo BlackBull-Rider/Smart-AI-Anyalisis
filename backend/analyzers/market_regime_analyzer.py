@@ -12,101 +12,36 @@ MIN_LR = 0.15
 MAX_LR = 8.0
 
 
-# ============================================================================
-# FEATURE CONTRACT
-# ============================================================================
-# Values are normalized only according to an explicit contract.
-# No automatic unit guessing is performed.
-# ============================================================================
-
 FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
     "close": [
-        ("close", 1.0),
-        ("adj_close", 1.0),
-        ("adjusted_close", 1.0),
-        ("cmp", 1.0),
-        ("price", 1.0),
-        ("last_price", 1.0),
+        ("close", 1.0), ("adj_close", 1.0), ("adjusted_close", 1.0),
+        ("cmp", 1.0), ("price", 1.0), ("last_price", 1.0),
     ],
-    "open": [
-        ("open", 1.0),
-    ],
-    "high": [
-        ("high", 1.0),
-    ],
-    "low": [
-        ("low", 1.0),
-    ],
-    "volume": [
-        ("volume", 1.0),
-        ("total_volume", 1.0),
-    ],
+    "open": [("open", 1.0)],
+    "high": [("high", 1.0)],
+    "low": [("low", 1.0)],
+    "volume": [("volume", 1.0), ("total_volume", 1.0)],
     "avg_volume": [
-        ("avg_volume", 1.0),
-        ("average_volume", 1.0),
-        ("volume_average", 1.0),
-        ("volume_avg", 1.0),
+        ("avg_volume", 1.0), ("average_volume", 1.0),
+        ("volume_average", 1.0), ("volume_avg", 1.0),
     ],
-    "ema20": [
-        ("ema20", 1.0),
-        ("ema_20", 1.0),
-        ("ema20_value", 1.0),
-    ],
-    "ema50": [
-        ("ema50", 1.0),
-        ("ema_50", 1.0),
-        ("ema50_value", 1.0),
-    ],
-    "ema100": [
-        ("ema100", 1.0),
-        ("ema_100", 1.0),
-        ("ema100_value", 1.0),
-    ],
-    "ema200": [
-        ("ema200", 1.0),
-        ("ema_200", 1.0),
-        ("ema200_value", 1.0),
-    ],
-    "sma20": [
-        ("sma20", 1.0),
-        ("sma_20", 1.0),
-    ],
-    "sma50": [
-        ("sma50", 1.0),
-        ("sma_50", 1.0),
-    ],
-    "sma200": [
-        ("sma200", 1.0),
-        ("sma_200", 1.0),
-    ],
-    "rsi": [
-        ("rsi", 1.0),
-        ("rsi14", 1.0),
-        ("rsi_14", 1.0),
-    ],
-    "macd": [
-        ("macd", 1.0),
-        ("macd_line", 1.0),
-    ],
+    "ema20": [("ema20", 1.0), ("ema_20", 1.0), ("ema20_value", 1.0)],
+    "ema50": [("ema50", 1.0), ("ema_50", 1.0), ("ema50_value", 1.0)],
+    "ema100": [("ema100", 1.0), ("ema_100", 1.0), ("ema100_value", 1.0)],
+    "ema200": [("ema200", 1.0), ("ema_200", 1.0), ("ema200_value", 1.0)],
+    "sma20": [("sma20", 1.0), ("sma_20", 1.0)],
+    "sma50": [("sma50", 1.0), ("sma_50", 1.0)],
+    "sma200": [("sma200", 1.0), ("sma_200", 1.0)],
+    "rsi": [("rsi", 1.0), ("rsi14", 1.0), ("rsi_14", 1.0)],
+    "macd": [("macd", 1.0), ("macd_line", 1.0)],
     "macd_signal": [
         ("macd_signal", 1.0),
         ("macd_signal_line", 1.0),
         ("signal_line", 1.0),
     ],
-    "macd_hist": [
-        ("macd_hist", 1.0),
-        ("macd_histogram", 1.0),
-    ],
-    "adx": [
-        ("adx", 1.0),
-        ("adx14", 1.0),
-        ("adx_14", 1.0),
-    ],
-    "atr": [
-        ("atr", 1.0),
-        ("atr14", 1.0),
-        ("atr_14", 1.0),
-    ],
+    "macd_hist": [("macd_hist", 1.0), ("macd_histogram", 1.0)],
+    "adx": [("adx", 1.0), ("adx14", 1.0), ("adx_14", 1.0)],
+    "atr": [("atr", 1.0), ("atr14", 1.0), ("atr_14", 1.0)],
     "atr_pct": [
         ("atr_pct", 1.0),
         ("atr_percent", 1.0),
@@ -169,10 +104,7 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("new_52w_lows", 1.0),
         ("new_low_count", 1.0),
     ],
-    "beta": [
-        ("beta", 1.0),
-        ("market_beta", 1.0),
-    ],
+    "beta": [("beta", 1.0), ("market_beta", 1.0)],
     "drawdown": [
         ("drawdown", 1.0),
         ("max_drawdown", 1.0),
@@ -205,51 +137,24 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
 
 DOMAIN_FEATURES: Dict[str, List[str]] = {
     "trend": [
-        "close",
-        "ema20",
-        "ema50",
-        "ema100",
-        "ema200",
-        "sma20",
-        "sma50",
-        "sma200",
-        "adx",
-        "return_20d",
-        "return_60d",
+        "close", "ema20", "ema50", "ema100", "ema200",
+        "sma20", "sma50", "sma200", "adx",
+        "return_20d", "return_60d",
     ],
     "momentum": [
-        "rsi",
-        "macd",
-        "macd_signal",
-        "macd_hist",
-        "return_1d",
-        "return_5d",
-        "return_20d",
+        "rsi", "macd", "macd_signal", "macd_hist",
+        "return_1d", "return_5d", "return_20d",
     ],
     "volatility": [
-        "atr",
-        "atr_pct",
-        "volatility",
-        "vix",
-        "drawdown",
+        "atr", "atr_pct", "volatility", "vix", "drawdown",
     ],
     "participation": [
-        "volume",
-        "avg_volume",
-        "breadth",
-        "advance_decline",
-        "advancers",
-        "decliners",
-        "new_highs",
-        "new_lows",
+        "volume", "avg_volume", "breadth", "advance_decline",
+        "advancers", "decliners", "new_highs", "new_lows",
         "institutional_flow",
     ],
     "risk": [
-        "beta",
-        "drawdown",
-        "vix",
-        "put_call_ratio",
-        "volatility",
+        "beta", "drawdown", "vix", "put_call_ratio", "volatility",
     ],
 }
 
@@ -275,10 +180,6 @@ class EvidenceNode:
     message: str
 
 
-# ============================================================================
-# SAFE NUMERIC HELPERS
-# ============================================================================
-
 def _num(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
@@ -302,8 +203,7 @@ def _num(value: Any) -> Optional[float]:
 
 
 def _safe_float(value: Any) -> Optional[float]:
-    number = _num(value)
-    return number
+    return _num(value)
 
 
 def _clip(value: float, low: float, high: float) -> float:
@@ -382,54 +282,11 @@ def _normalize_key(key: Any) -> str:
     return text
 
 
-def _string(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-
-    if not isinstance(value, str):
-        return None
-
-    value = value.strip()
-
-    return value if value else None
-
-
-# ============================================================================
-# ANALYZER
-# ============================================================================
-
 class MarketRegimeAnalyzer:
-    """
-    Production-grade market regime analyzer.
-
-    Responsibilities:
-        - Parse database/L3 payloads.
-        - Preserve chronological history.
-        - Select latest VALID observations per feature.
-        - Never fabricate missing values.
-        - Detect market regime from available evidence.
-        - Detect trend, volatility, momentum, participation and risk context.
-        - Detect regime transitions.
-        - Detect contradictions.
-        - Produce deterministic JSON-serializable output.
-        - Expose complete feature coverage and tracing.
-
-    Explicitly does NOT:
-        - Buy/Sell decisions.
-        - Entry/Stop/Target calculations.
-        - Position sizing.
-        - Score-engine integration.
-        - Stock-specific hardcoded decisions.
-    """
-
     def __init__(self) -> None:
         self.logger = logging.getLogger(
             f"{__name__}.{self.__class__.__name__}"
         )
-
-    # ----------------------------------------------------------------------
-    # PUBLIC API
-    # ----------------------------------------------------------------------
 
     def analyze(
         self,
@@ -522,49 +379,27 @@ class MarketRegimeAnalyzer:
             return {
                 "market_regime_analyzer": {
                     "confidence": self._round(confidence),
-
                     "regime": self._round(regime["regime"]),
                     "regime_status": regime["regime_status"],
                     "regime_score": self._round(regime["regime_score"]),
-
                     "trend": self._round(trend["value"]),
-                    "trend_strength": self._round(
-                        trend["strength"]
-                    ),
-
-                    "volatility": self._round(
-                        volatility["value"]
-                    ),
+                    "trend_strength": self._round(trend["strength"]),
+                    "volatility": self._round(volatility["value"]),
                     "volatility_status": volatility["status"],
-
-                    "momentum": self._round(
-                        momentum["value"]
-                    ),
+                    "momentum": self._round(momentum["value"]),
                     "momentum_status": momentum["status"],
-
-                    "participation": self._round(
-                        participation["value"]
-                    ),
+                    "participation": self._round(participation["value"]),
                     "participation_status": participation["status"],
-
                     "risk": self._round(risk["value"]),
                     "risk_status": risk["status"],
-
-                    "transition": self._round(
-                        transition["value"]
-                    ),
+                    "transition": self._round(transition["value"]),
                     "transition_status": transition["status"],
-
                     "feature_coverage_pct": self._round(
                         coverage["coverage_pct"]
                     ),
-
                     "feature_trace_summary": coverage["summary"],
-
                     "feature_trace": feature_trace,
-
                     "domain_coverage": coverage["domain_coverage"],
-
                     "evidence": evidence[:12],
                 }
             }
@@ -589,41 +424,28 @@ class MarketRegimeAnalyzer:
 
             return result
 
-    # ----------------------------------------------------------------------
-    # EMPTY
-    # ----------------------------------------------------------------------
-
     def _empty(self) -> Dict[str, Any]:
         feature_names = list(FIELD_CONTRACTS.keys())
 
         return {
             "market_regime_analyzer": {
                 "confidence": 0.0,
-
                 "regime": None,
                 "regime_status": "insufficient_data",
                 "regime_score": None,
-
                 "trend": None,
                 "trend_strength": None,
-
                 "volatility": None,
                 "volatility_status": "unknown",
-
                 "momentum": None,
                 "momentum_status": "unknown",
-
                 "participation": None,
                 "participation_status": "unknown",
-
                 "risk": None,
                 "risk_status": "unknown",
-
                 "transition": None,
                 "transition_status": "unknown",
-
                 "feature_coverage_pct": 0.0,
-
                 "feature_trace_summary": {
                     "total_features": len(feature_names),
                     "used_features": 0,
@@ -636,9 +458,7 @@ class MarketRegimeAnalyzer:
                     "missing_feature_names": feature_names,
                     "invalid_feature_names": [],
                 },
-
                 "feature_trace": {},
-
                 "domain_coverage": {
                     domain: {
                         "total_features": len(features),
@@ -649,14 +469,9 @@ class MarketRegimeAnalyzer:
                     }
                     for domain, features in DOMAIN_FEATURES.items()
                 },
-
                 "evidence": [],
             }
         }
-
-    # ----------------------------------------------------------------------
-    # PAYLOAD PARSER
-    # ----------------------------------------------------------------------
 
     def _parse_payload_chronologically(
         self,
@@ -668,7 +483,6 @@ class MarketRegimeAnalyzer:
         if data is None:
             return []
 
-        # pandas DataFrame without importing pandas.
         if hasattr(data, "to_dict") and hasattr(data, "columns"):
             try:
                 rows = data.to_dict(orient="records")
@@ -678,7 +492,6 @@ class MarketRegimeAnalyzer:
                         row for row in rows
                         if isinstance(row, Mapping)
                     )
-
             except Exception:
                 pass
 
@@ -716,7 +529,6 @@ class MarketRegimeAnalyzer:
                     raw_rows.append(dict(value))
                     found = True
 
-            # Direct snapshot.
             if not found and self._looks_like_snapshot(data):
                 raw_rows.append(dict(data))
 
@@ -788,10 +600,6 @@ class MarketRegimeAnalyzer:
                     return parsed
 
         return 0.0
-
-    # ----------------------------------------------------------------------
-    # FEATURE EXTRACTION
-    # ----------------------------------------------------------------------
 
     def _extract_feature_history(
         self,
@@ -873,7 +681,6 @@ class MarketRegimeAnalyzer:
             multiplier = None
             invalid = False
 
-            # Find the latest valid source row explicitly.
             for snapshot in reversed(snapshots):
 
                 for alias, mult in aliases:
@@ -947,10 +754,6 @@ class MarketRegimeAnalyzer:
                 }
 
         return latest, traces
-
-    # ----------------------------------------------------------------------
-    # COVERAGE
-    # ----------------------------------------------------------------------
 
     def _build_feature_coverage(
         self,
@@ -1039,10 +842,6 @@ class MarketRegimeAnalyzer:
             "domain_coverage": domain_coverage,
         }
 
-    # ----------------------------------------------------------------------
-    # TREND
-    # ----------------------------------------------------------------------
-
     def _analyze_trend(
         self,
         latest: Dict[str, Optional[float]],
@@ -1074,10 +873,7 @@ class MarketRegimeAnalyzer:
                 )
             )
 
-        if (
-            ema20 is not None
-            and ema50 is not None
-        ):
+        if ema20 is not None and ema50 is not None:
             score = 65.0 if ema20 > ema50 else 35.0
             components.append(score)
 
@@ -1092,32 +888,23 @@ class MarketRegimeAnalyzer:
                 )
             )
 
-        if (
-            ema50 is not None
-            and ema100 is not None
-        ):
-            score = 65.0 if ema50 > ema100 else 35.0
-            components.append(score)
+        if ema50 is not None and ema100 is not None:
+            components.append(
+                65.0 if ema50 > ema100 else 35.0
+            )
 
-        if (
-            ema100 is not None
-            and ema200 is not None
-        ):
-            score = 70.0 if ema100 > ema200 else 30.0
-            components.append(score)
+        if ema100 is not None and ema200 is not None:
+            components.append(
+                70.0 if ema100 > ema200 else 30.0
+            )
 
         if (
             ema50 is not None
             and ema200 is not None
             and close is not None
         ):
-            aligned_bull = (
-                close > ema50 > ema200
-            )
-
-            aligned_bear = (
-                close < ema50 < ema200
-            )
+            aligned_bull = close > ema50 > ema200
+            aligned_bear = close < ema50 < ema200
 
             if aligned_bull:
                 components.append(80.0)
@@ -1151,7 +938,6 @@ class MarketRegimeAnalyzer:
                 0.0,
                 1.0,
             )
-
         else:
             adx_strength = None
 
@@ -1159,22 +945,22 @@ class MarketRegimeAnalyzer:
         return60 = latest.get("return_60d")
 
         if return20 is not None:
-            score = _score(
-                return20,
-                neutral=0.0,
-                scale=8.0,
+            components.append(
+                _score(
+                    return20,
+                    neutral=0.0,
+                    scale=8.0,
+                )
             )
-
-            components.append(score)
 
         if return60 is not None:
-            score = _score(
-                return60,
-                neutral=0.0,
-                scale=15.0,
+            components.append(
+                _score(
+                    return60,
+                    neutral=0.0,
+                    scale=15.0,
+                )
             )
-
-            components.append(score)
 
         if not components:
             return {
@@ -1205,10 +991,6 @@ class MarketRegimeAnalyzer:
             "status": status,
             "evidence": evidence,
         }
-
-    # ----------------------------------------------------------------------
-    # MOMENTUM
-    # ----------------------------------------------------------------------
 
     def _analyze_momentum(
         self,
@@ -1263,22 +1045,22 @@ class MarketRegimeAnalyzer:
                 1.0,
             )
 
-            macd_score = _score(
-                spread / scale,
-                neutral=0.0,
-                scale=0.2,
+            components.append(
+                _score(
+                    spread / scale,
+                    neutral=0.0,
+                    scale=0.2,
+                )
             )
-
-            components.append(macd_score)
 
         if hist is not None:
-            hist_score = _score(
-                hist,
-                neutral=0.0,
-                scale=max(abs(hist), 1.0),
+            components.append(
+                _score(
+                    hist,
+                    neutral=0.0,
+                    scale=max(abs(hist), 1.0),
+                )
             )
-
-            components.append(hist_score)
 
         for key in (
             "return_1d",
@@ -1319,10 +1101,6 @@ class MarketRegimeAnalyzer:
             "status": status,
             "evidence": evidence,
         }
-
-    # ----------------------------------------------------------------------
-    # VOLATILITY
-    # ----------------------------------------------------------------------
 
     def _analyze_volatility(
         self,
@@ -1392,7 +1170,6 @@ class MarketRegimeAnalyzer:
 
         raw = sum(values) / len(values)
 
-        # The output is a normalized 0-100 volatility intensity.
         normalized = _clip(
             raw * 5.0,
             0.0,
@@ -1432,10 +1209,6 @@ class MarketRegimeAnalyzer:
             "evidence": evidence,
         }
 
-    # ----------------------------------------------------------------------
-    # PARTICIPATION
-    # ----------------------------------------------------------------------
-
     def _analyze_participation(
         self,
         latest: Dict[str, Optional[float]],
@@ -1458,13 +1231,13 @@ class MarketRegimeAnalyzer:
         ad = latest.get("advance_decline")
 
         if ad is not None:
-            ad_score = _score(
-                ad,
-                neutral=1.0,
-                scale=0.5,
+            components.append(
+                _score(
+                    ad,
+                    neutral=1.0,
+                    scale=0.5,
+                )
             )
-
-            components.append(ad_score)
 
         advancers = latest.get("advancers")
         decliners = latest.get("decliners")
@@ -1478,12 +1251,8 @@ class MarketRegimeAnalyzer:
             total = advancers + decliners
 
             if total > 0:
-                breadth_score = (
-                    advancers / total
-                ) * 100.0
-
                 components.append(
-                    breadth_score
+                    (advancers / total) * 100.0
                 )
 
         volume = latest.get("volume")
@@ -1496,14 +1265,12 @@ class MarketRegimeAnalyzer:
         ):
             volume_ratio = volume / avg_volume
 
-            volume_score = _score(
-                volume_ratio,
-                neutral=1.0,
-                scale=0.4,
-            )
-
             components.append(
-                volume_score
+                _score(
+                    volume_ratio,
+                    neutral=1.0,
+                    scale=0.4,
+                )
             )
 
             if volume_ratio >= 1.5:
@@ -1528,27 +1295,18 @@ class MarketRegimeAnalyzer:
             total_extremes = new_highs + new_lows
 
             if total_extremes > 0:
-                high_score = (
-                    new_highs / total_extremes
-                ) * 100.0
-
                 components.append(
-                    high_score
+                    (new_highs / total_extremes) * 100.0
                 )
 
-        institutional = latest.get(
-            "institutional_flow"
-        )
+        institutional = latest.get("institutional_flow")
 
         if institutional is not None:
             components.append(
                 _score(
                     institutional,
                     neutral=0.0,
-                    scale=max(
-                        abs(institutional),
-                        1.0,
-                    ),
+                    scale=max(abs(institutional), 1.0),
                 )
             )
 
@@ -1563,6 +1321,7 @@ class MarketRegimeAnalyzer:
 
         if value >= 65.0:
             status = "broad"
+
             evidence.append(
                 EvidenceNode(
                     "participation",
@@ -1574,6 +1333,7 @@ class MarketRegimeAnalyzer:
 
         elif value <= 35.0:
             status = "weak"
+
             evidence.append(
                 EvidenceNode(
                     "participation",
@@ -1591,10 +1351,6 @@ class MarketRegimeAnalyzer:
             "status": status,
             "evidence": evidence,
         }
-
-    # ----------------------------------------------------------------------
-    # RISK
-    # ----------------------------------------------------------------------
 
     def _analyze_risk(
         self,
@@ -1698,10 +1454,6 @@ class MarketRegimeAnalyzer:
             "evidence": evidence,
         }
 
-    # ----------------------------------------------------------------------
-    # TRANSITION
-    # ----------------------------------------------------------------------
-
     def _analyze_transition(
         self,
         latest: Dict[str, Optional[float]],
@@ -1709,7 +1461,6 @@ class MarketRegimeAnalyzer:
     ) -> Dict[str, Any]:
 
         evidence: List[EvidenceNode] = []
-
         directional_changes: List[float] = []
 
         for feature in (
@@ -1727,23 +1478,11 @@ class MarketRegimeAnalyzer:
             previous = series[-2][1]
             current = series[-1][1]
 
-            if feature == "rsi":
-                delta = current - previous
-                directional_changes.append(
-                    _clip(delta / 10.0, -1.0, 1.0)
-                )
+            delta = current - previous
 
-            elif feature == "adx":
-                delta = current - previous
-                directional_changes.append(
-                    _clip(delta / 10.0, -1.0, 1.0)
-                )
-
-            else:
-                delta = current - previous
-                directional_changes.append(
-                    _clip(delta / 10.0, -1.0, 1.0)
-                )
+            directional_changes.append(
+                _clip(delta / 10.0, -1.0, 1.0)
+            )
 
         if not directional_changes:
             return {
@@ -1756,12 +1495,8 @@ class MarketRegimeAnalyzer:
             directional_changes
         ) / len(directional_changes)
 
-        transition_score = (
-            abs(average_change) * 100.0
-        )
+        transition_score = abs(average_change) * 100.0
 
-        # Determine actual structural transition from opposing
-        # short/long directional information when available.
         return20 = latest.get("return_20d")
         return60 = latest.get("return_60d")
 
@@ -1794,10 +1529,8 @@ class MarketRegimeAnalyzer:
 
         if transition_score >= 65.0:
             status = "transitioning"
-
         elif transition_score >= 35.0:
             status = "watch"
-
         else:
             status = "stable"
 
@@ -1806,10 +1539,6 @@ class MarketRegimeAnalyzer:
             "status": status,
             "evidence": evidence,
         }
-
-    # ----------------------------------------------------------------------
-    # REGIME
-    # ----------------------------------------------------------------------
 
     def _detect_regime(
         self,
@@ -1823,13 +1552,9 @@ class MarketRegimeAnalyzer:
 
         trend_value = trend.get("value")
         momentum_value = momentum.get("value")
-        participation_value = participation.get(
-            "value"
-        )
+        participation_value = participation.get("value")
         risk_value = risk.get("value")
-        transition_value = transition.get(
-            "value"
-        )
+        transition_value = transition.get("value")
 
         available = [
             value
@@ -1853,24 +1578,16 @@ class MarketRegimeAnalyzer:
         components: List[float] = []
 
         if trend_value is not None:
-            components.append(
-                trend_value * 0.40
-            )
+            components.append(trend_value * 0.40)
 
         if momentum_value is not None:
-            components.append(
-                momentum_value * 0.25
-            )
+            components.append(momentum_value * 0.25)
 
         if participation_value is not None:
-            components.append(
-                participation_value * 0.20
-            )
+            components.append(participation_value * 0.20)
 
         if risk_value is not None:
-            components.append(
-                risk_value * 0.15
-            )
+            components.append(risk_value * 0.15)
 
         total_weight = 0.0
 
@@ -1894,13 +1611,9 @@ class MarketRegimeAnalyzer:
                 "evidence": [],
             }
 
-        regime_score = (
-            sum(components) / total_weight
-        )
-
+        regime_score = sum(components) / total_weight
         evidence: List[EvidenceNode] = []
 
-        # Transition takes precedence when structural evidence exists.
         if (
             transition_value is not None
             and transition_value >= 65.0
@@ -1967,10 +1680,6 @@ class MarketRegimeAnalyzer:
             "evidence": evidence,
         }
 
-    # ----------------------------------------------------------------------
-    # CONFIDENCE
-    # ----------------------------------------------------------------------
-
     def _calculate_confidence(
         self,
         snapshots: List[Dict[str, Any]],
@@ -2000,9 +1709,7 @@ class MarketRegimeAnalyzer:
             for value in domain_values
         )
 
-        domain_coverage = (
-            domain_count / 6.0
-        )
+        domain_coverage = domain_count / 6.0
 
         unique_dates = len(
             {
@@ -2047,10 +1754,6 @@ class MarketRegimeAnalyzer:
             100.0,
         )
 
-    # ----------------------------------------------------------------------
-    # EVIDENCE
-    # ----------------------------------------------------------------------
-
     def _format_evidence(
         self,
         nodes: List[EvidenceNode],
@@ -2075,9 +1778,7 @@ class MarketRegimeAnalyzer:
             )
 
             reliability = _clip(
-                0.70 + (
-                    magnitude * 0.30
-                ),
+                0.70 + (magnitude * 0.30),
                 0.0,
                 1.0,
             )
@@ -2092,9 +1793,7 @@ class MarketRegimeAnalyzer:
                     "category": "Regime",
                     "domain": str(node.domain),
                     "message": message,
-                    "reliability": self._round(
-                        reliability
-                    ),
+                    "reliability": self._round(reliability),
                     "likelihood_ratio": self._round(
                         likelihood_ratio
                     ),
@@ -2114,10 +1813,6 @@ class MarketRegimeAnalyzer:
         )
 
         return output
-
-    # ----------------------------------------------------------------------
-    # JSON SAFETY
-    # ----------------------------------------------------------------------
 
     def _json_value(
         self,
@@ -2149,10 +1844,6 @@ class MarketRegimeAnalyzer:
 
         return round(number, 4)
 
-
-# ============================================================================
-# MODULE LEVEL PUBLIC API
-# ============================================================================
 
 def analyze(
     data: Any,

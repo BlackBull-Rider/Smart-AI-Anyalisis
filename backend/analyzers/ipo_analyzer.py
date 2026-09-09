@@ -11,25 +11,7 @@ logger = logging.getLogger(__name__)
 MIN_LR = 0.15
 MAX_LR = 8.0
 
-
-# ============================================================================
-# STRICT IPO FEATURE CONTRACT
-# ============================================================================
-#
-# Each tuple:
-#   (database/input alias, multiplier)
-#
-# Multipliers are explicit. No automatic unit guessing is performed.
-#
-# Percentage fields:
-#   - *_pct / *_percent     -> already percentage points
-#   - *_ratio / *_decimal   -> decimal fractions converted explicitly
-#
-# The analyzer also accepts common NSE/Yahoo/database naming variants.
-# ============================================================================
-
 FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
-    # Risk
     "ipo_risk": [
         ("ipo_risk", 1.0),
         ("risk", 1.0),
@@ -42,8 +24,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("valuation_score", 1.0),
         ("ipo_valuation_score", 1.0),
     ],
-
-    # IPO quality / listing
     "ipo_quality": [
         ("ipo_quality", 1.0),
         ("ipo_quality_score", 1.0),
@@ -56,8 +36,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("listing_gain_pct", 1.0),
         ("listing_gain_percent", 1.0),
     ],
-
-    # Subscription / demand
     "subscription": [
         ("subscription", 1.0),
         ("subscription_multiple", 1.0),
@@ -87,8 +65,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("ipo_demand_score", 1.0),
         ("retail_demand", 1.0),
     ],
-
-    # Liquidity
     "liquidity": [
         ("ipo_liquidity", 1.0),
         ("liquidity", 1.0),
@@ -96,8 +72,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("listing_liquidity", 1.0),
         ("trading_liquidity", 1.0),
     ],
-
-    # Business
     "business": [
         ("business_quality", 1.0),
         ("business_score", 1.0),
@@ -105,8 +79,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("company_quality", 1.0),
         ("fundamental_quality", 1.0),
     ],
-
-    # Additional fundamental IPO context
     "revenue_growth": [
         ("revenue_growth_yoy", 1.0),
         ("revenue_growth_pct", 1.0),
@@ -129,8 +101,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("return_on_capital_employed", 1.0),
         ("return_on_capital_employed_pct", 1.0),
     ],
-
-    # IPO pricing
     "issue_price": [
         ("issue_price", 1.0),
         ("ipo_price", 1.0),
@@ -150,8 +120,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("last_price", 1.0),
         ("market_price", 1.0),
     ],
-
-    # Size / liquidity context
     "issue_size": [
         ("issue_size", 1.0),
         ("issue_size_cr", 1.0),
@@ -163,8 +131,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("market_capitalization", 1.0),
         ("market_cap_cr", 1.0),
     ],
-
-    # Ownership / dilution
     "promoter_holding": [
         ("promoter_holding", 1.0),
         ("promoter_holding_pct", 1.0),
@@ -179,8 +145,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
         ("ofs_percent", 1.0),
         ("offer_for_sale_pct", 1.0),
     ],
-
-    # Risk context
     "debt_equity": [
         ("debt_to_equity", 1.0),
         ("debt_equity", 1.0),
@@ -195,10 +159,6 @@ FIELD_CONTRACTS: Dict[str, List[Tuple[str, float]]] = {
 }
 
 
-# ============================================================================
-# DATA STRUCTURES
-# ============================================================================
-
 @dataclass(frozen=True)
 class EvidenceNode:
     domain: str
@@ -206,10 +166,6 @@ class EvidenceNode:
     magnitude: float
     message: str
 
-
-# ============================================================================
-# SAFE HELPERS
-# ============================================================================
 
 def _num(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
@@ -226,11 +182,9 @@ def _num(value: Any) -> Optional[float]:
             text = text.replace("₹", "")
             text = text.replace("$", "")
 
-            # Explicitly strip a percentage sign.
             if text.endswith("%"):
                 text = text[:-1].strip()
 
-            # Handle simple "x" suffix used for subscription multiples.
             if text.lower().endswith("x"):
                 text = text[:-1].strip()
 
@@ -302,8 +256,7 @@ def _continuous_score(
 
 def _lr(magnitude: float, direction: float) -> float:
     magnitude = _clip(abs(magnitude), 0.0, 1.0)
-
-    base = 1.0 + (magnitude * 3.0)
+    base = 1.0 + magnitude * 3.0
 
     if direction >= 0:
         return _clip(base, MIN_LR, MAX_LR)
@@ -323,10 +276,7 @@ def _normalise_key(key: Any) -> str:
 
 
 def _parse_time(value: Any, fallback: float = 0.0) -> float:
-    if value is None:
-        return fallback
-
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return fallback
 
     if isinstance(value, (int, float)):
@@ -341,7 +291,6 @@ def _parse_time(value: Any, fallback: float = 0.0) -> float:
     if not text:
         return fallback
 
-    # YYYY-MM-DD
     if re.match(r"^\d{4}-\d{2}-\d{2}", text):
         try:
             return (
@@ -352,7 +301,6 @@ def _parse_time(value: Any, fallback: float = 0.0) -> float:
         except (ValueError, IndexError):
             return fallback
 
-    # YYYY/MM/DD
     if re.match(r"^\d{4}/\d{2}/\d{2}", text):
         try:
             return (
@@ -365,10 +313,7 @@ def _parse_time(value: Any, fallback: float = 0.0) -> float:
 
     numeric = _num(text)
 
-    if numeric is not None:
-        return numeric
-
-    return fallback
+    return numeric if numeric is not None else fallback
 
 
 def _date_from_row(row: Mapping[str, Any]) -> float:
@@ -399,19 +344,6 @@ def _date_from_row(row: Mapping[str, Any]) -> float:
     return 0.0
 
 
-def _status(score: Optional[float], high: float, low: float) -> str:
-    if score is None:
-        return "unknown"
-
-    if score >= high:
-        return "high"
-
-    if score <= low:
-        return "low"
-
-    return "neutral"
-
-
 def _safe_round(value: Optional[float], digits: int = 4) -> Optional[float]:
     if value is None:
         return None
@@ -419,40 +351,23 @@ def _safe_round(value: Optional[float], digits: int = 4) -> Optional[float]:
     return _safe_float(round(value, digits))
 
 
-# ============================================================================
-# IPO ANALYZER
-# ============================================================================
-
 class IPOAnalyzer:
     """
-    Production-grade IPO Analyzer.
+    Production-grade IPO analyzer.
 
-    Design principles
-    -----------------
-    1. Database friendly.
-    2. L3 Analyzer friendly.
-    3. Accepts DataFrame / dict / list / wrapped payloads.
-    4. Chronological historical parsing.
-    5. Uses latest VALID snapshot, not blindly the last row.
-    6. Never fabricates missing values.
-    7. Explicit feature contracts.
-    8. Full feature-level tracing.
-    9. Domain-level coverage.
-    10. Deterministic output.
-    11. No Buy/Sell/Entry/SL/Target logic.
-    12. No dependency on scoring engines.
-    13. Exception safe.
-    14. JSON serializable output.
+    Analyzer-only layer:
+    - no buy/sell logic
+    - no entry/SL/target logic
+    - no scoring-engine dependency
+    - deterministic
+    - JSON serializable
+    - latest valid feature fallback
     """
 
     def __init__(self) -> None:
         self.logger = logging.getLogger(
             f"{__name__}.{self.__class__.__name__}"
         )
-
-    # ========================================================================
-    # PUBLIC API
-    # ========================================================================
 
     def analyze(
         self,
@@ -493,200 +408,44 @@ class IPOAnalyzer:
 
             nodes: List[EvidenceNode] = []
 
-            # =================================================================
-            # RISK
-            # =================================================================
-
-            risk_score = self._calculate_risk(
-                latest_metrics,
-                nodes,
-            )
-
-            risk_status = (
-                "high"
-                if risk_score is not None and risk_score >= 60.0
-                else "low"
-                if risk_score is not None and risk_score <= 40.0
-                else "neutral"
-                if risk_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # VALUATION
-            # =================================================================
-
+            risk_score = self._calculate_risk(latest_metrics, nodes)
             valuation_score = self._calculate_valuation(
                 latest_metrics,
                 nodes,
             )
-
-            valuation_status = (
-                "attractive"
-                if valuation_score is not None and valuation_score >= 60.0
-                else "expensive"
-                if valuation_score is not None and valuation_score <= 40.0
-                else "neutral"
-                if valuation_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # IPO QUALITY
-            # =================================================================
-
             ipo_quality_score = self._calculate_ipo_quality(
                 latest_metrics,
                 nodes,
             )
-
-            ipo_quality_status = (
-                "high"
-                if ipo_quality_score is not None and ipo_quality_score >= 60.0
-                else "low"
-                if ipo_quality_score is not None and ipo_quality_score <= 40.0
-                else "neutral"
-                if ipo_quality_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # LISTING
-            # =================================================================
-
             listing_score = self._calculate_listing(
                 latest_metrics,
                 histories,
                 nodes,
             )
-
-            listing_status = (
-                "strong"
-                if listing_score is not None and listing_score >= 60.0
-                else "weak"
-                if listing_score is not None and listing_score <= 40.0
-                else "neutral"
-                if listing_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # SUBSCRIPTION
-            # =================================================================
-
             subscription_score = self._calculate_subscription(
                 latest_metrics,
                 nodes,
             )
-
-            subscription_status = (
-                "high"
-                if subscription_score is not None and subscription_score >= 60.0
-                else "low"
-                if subscription_score is not None and subscription_score <= 40.0
-                else "neutral"
-                if subscription_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # INSTITUTIONAL
-            # =================================================================
-
             institutional_score = self._calculate_institutional(
                 latest_metrics,
                 nodes,
             )
-
-            institutional_status = (
-                "strong"
-                if institutional_score is not None and institutional_score >= 60.0
-                else "weak"
-                if institutional_score is not None and institutional_score <= 40.0
-                else "neutral"
-                if institutional_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # ANCHOR
-            # =================================================================
-
             anchor_score = self._calculate_anchor(
                 latest_metrics,
                 nodes,
             )
-
-            anchor_status = (
-                "excellent"
-                if anchor_score is not None and anchor_score >= 70.0
-                else "poor"
-                if anchor_score is not None and anchor_score <= 40.0
-                else "neutral"
-                if anchor_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # DEMAND
-            # =================================================================
-
             demand_score = self._calculate_demand(
                 latest_metrics,
                 nodes,
             )
-
-            demand_status = (
-                "huge"
-                if demand_score is not None and demand_score >= 70.0
-                else "weak"
-                if demand_score is not None and demand_score <= 40.0
-                else "neutral"
-                if demand_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # LIQUIDITY
-            # =================================================================
-
             liquidity_score = self._calculate_liquidity(
                 latest_metrics,
                 nodes,
             )
-
-            liquidity_status = (
-                "high"
-                if liquidity_score is not None and liquidity_score >= 60.0
-                else "low"
-                if liquidity_score is not None and liquidity_score <= 40.0
-                else "neutral"
-                if liquidity_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # BUSINESS
-            # =================================================================
-
             business_score = self._calculate_business(
                 latest_metrics,
                 nodes,
             )
-
-            business_status = (
-                "excellent"
-                if business_score is not None and business_score >= 60.0
-                else "poor"
-                if business_score is not None and business_score <= 40.0
-                else "neutral"
-                if business_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # OPPORTUNITY
-            # =================================================================
 
             opportunity_score = self._calculate_opportunity(
                 risk_score=risk_score,
@@ -701,20 +460,6 @@ class IPOAnalyzer:
                 business_score=business_score,
             )
 
-            opportunity_status = (
-                "high"
-                if opportunity_score is not None and opportunity_score >= 60.0
-                else "low"
-                if opportunity_score is not None and opportunity_score <= 40.0
-                else "neutral"
-                if opportunity_score is not None
-                else "unknown"
-            )
-
-            # =================================================================
-            # CROSS-DOMAIN CONTRADICTIONS
-            # =================================================================
-
             self._detect_contradictions(
                 risk_score=risk_score,
                 valuation_score=valuation_score,
@@ -726,15 +471,7 @@ class IPOAnalyzer:
                 nodes=nodes,
             )
 
-            # =================================================================
-            # EVIDENCE
-            # =================================================================
-
             evidence = self._format_evidence(nodes)
-
-            # =================================================================
-            # CONFIDENCE
-            # =================================================================
 
             confidence = self._calculate_confidence(
                 feature_trace_summary=feature_trace_summary,
@@ -746,50 +483,100 @@ class IPOAnalyzer:
             return {
                 "ipo_analyzer": {
                     "confidence": _safe_round(confidence),
-
                     "risk": _safe_round(risk_score),
-                    "risk_status": risk_status,
-
+                    "risk_status": self._status(
+                        risk_score,
+                        60.0,
+                        40.0,
+                        "high",
+                        "low",
+                    ),
                     "valuation": _safe_round(valuation_score),
-                    "valuation_status": valuation_status,
-
+                    "valuation_status": self._status(
+                        valuation_score,
+                        60.0,
+                        40.0,
+                        "attractive",
+                        "expensive",
+                    ),
                     "ipo_quality": _safe_round(ipo_quality_score),
-                    "ipo_quality_status": ipo_quality_status,
-
+                    "ipo_quality_status": self._status(
+                        ipo_quality_score,
+                        60.0,
+                        40.0,
+                        "high",
+                        "low",
+                    ),
                     "listing": _safe_round(listing_score),
-                    "listing_status": listing_status,
-
+                    "listing_status": self._status(
+                        listing_score,
+                        60.0,
+                        40.0,
+                        "strong",
+                        "weak",
+                    ),
                     "subscription": _safe_round(subscription_score),
-                    "subscription_status": subscription_status,
-
+                    "subscription_status": self._status(
+                        subscription_score,
+                        60.0,
+                        40.0,
+                        "high",
+                        "low",
+                    ),
                     "institutional": _safe_round(institutional_score),
-                    "institutional_status": institutional_status,
-
+                    "institutional_status": self._status(
+                        institutional_score,
+                        60.0,
+                        40.0,
+                        "strong",
+                        "weak",
+                    ),
                     "anchor": _safe_round(anchor_score),
-                    "anchor_status": anchor_status,
-
+                    "anchor_status": self._status(
+                        anchor_score,
+                        70.0,
+                        40.0,
+                        "excellent",
+                        "poor",
+                    ),
                     "demand": _safe_round(demand_score),
-                    "demand_status": demand_status,
-
+                    "demand_status": self._status(
+                        demand_score,
+                        70.0,
+                        40.0,
+                        "huge",
+                        "weak",
+                    ),
                     "liquidity": _safe_round(liquidity_score),
-                    "liquidity_status": liquidity_status,
-
+                    "liquidity_status": self._status(
+                        liquidity_score,
+                        60.0,
+                        40.0,
+                        "high",
+                        "low",
+                    ),
                     "business": _safe_round(business_score),
-                    "business_status": business_status,
-
+                    "business_status": self._status(
+                        business_score,
+                        60.0,
+                        40.0,
+                        "excellent",
+                        "poor",
+                    ),
                     "opportunity": _safe_round(opportunity_score),
-                    "opportunity_status": opportunity_status,
-
+                    "opportunity_status": self._status(
+                        opportunity_score,
+                        60.0,
+                        40.0,
+                        "high",
+                        "low",
+                    ),
                     "feature_coverage_pct": feature_trace_summary[
                         "coverage_pct"
                     ],
-
                     "feature_trace_summary": feature_trace_summary,
-
                     "feature_trace": feature_trace,
-
                     "domain_coverage": domain_coverage,
-
                     "evidence": evidence[:12],
                 }
             }
@@ -814,9 +601,24 @@ class IPOAnalyzer:
 
             return result
 
-    # ========================================================================
-    # PARSER
-    # ========================================================================
+    @staticmethod
+    def _status(
+        score: Optional[float],
+        high: float,
+        low: float,
+        high_name: str,
+        low_name: str,
+    ) -> str:
+        if score is None:
+            return "unknown"
+
+        if score >= high:
+            return high_name
+
+        if score <= low:
+            return low_name
+
+        return "neutral"
 
     def _parse_payload_chronologically(
         self,
@@ -827,7 +629,6 @@ class IPOAnalyzer:
         if data is None:
             return raw_rows
 
-        # pandas DataFrame
         if hasattr(data, "to_dict") and hasattr(data, "columns"):
             try:
                 converted = data.to_dict(orient="records")
@@ -836,7 +637,7 @@ class IPOAnalyzer:
                     raw_rows.extend(
                         row
                         for row in converted
-                        if isinstance(row, dict)
+                        if isinstance(row, Mapping)
                     )
             except Exception:
                 pass
@@ -892,7 +693,6 @@ class IPOAnalyzer:
                 if isinstance(row, Mapping)
             )
 
-        # Normalize every row.
         extracted: List[Dict[str, Any]] = []
 
         for index, row in enumerate(raw_rows):
@@ -902,22 +702,16 @@ class IPOAnalyzer:
                 if value is None:
                     continue
 
-                key = _normalise_key(raw_key)
-
-                normalized[key] = value
+                normalized[_normalise_key(raw_key)] = value
 
             if not normalized:
                 continue
 
-            timestamp = _date_from_row(normalized)
-
-            normalized["_t"] = timestamp
+            normalized["_t"] = _date_from_row(normalized)
             normalized["_idx"] = index
 
-            # A row is retained if it contains at least one contracted
-            # feature, even when the row has no explicit date.
             if self._row_contains_contract_feature(normalized):
-                extracted.append(normal)
+                extracted.append(normalized)
 
         extracted.sort(
             key=lambda row: (
@@ -928,8 +722,8 @@ class IPOAnalyzer:
 
         return extracted
 
+    @staticmethod
     def _row_contains_contract_feature(
-        self,
         row: Mapping[str, Any],
     ) -> bool:
         aliases = {
@@ -938,14 +732,7 @@ class IPOAnalyzer:
             for alias, _ in contracts
         }
 
-        return any(
-            key in aliases
-            for key in row.keys()
-        )
-
-    # ========================================================================
-    # FEATURE HISTORY
-    # ========================================================================
+        return any(key in aliases for key in row)
 
     def _build_feature_histories(
         self,
@@ -997,28 +784,26 @@ class IPOAnalyzer:
         if not snapshots:
             return None
 
-        # Valid means at least one contracted feature has a valid numeric
-        # value in the row. This avoids blindly trusting the final DB row.
-        for snapshot in reversed(snapshots):
-            timestamp = float(snapshot.get("_t", 0.0))
+        valid_timestamps = {
+            timestamp
+            for history in histories.values()
+            for timestamp, _, _, _ in history
+        }
 
-            for feature_history in histories.values():
-                for timestamp_value, _, _, _ in reversed(feature_history):
-                    if timestamp_value == timestamp:
-                        return snapshot
+        for snapshot in reversed(snapshots):
+            if float(snapshot.get("_t", 0.0)) in valid_timestamps:
+                return snapshot
 
         return None
-
-    # ========================================================================
-    # LATEST FEATURE EXTRACTION + TRACE
-    # ========================================================================
 
     def _extract_latest_features(
         self,
         histories: Dict[str, List[Tuple[float, float, str, Any]]],
         latest_snapshot: Dict[str, Any],
-    ) -> Tuple[Dict[str, Optional[float]], Dict[str, Dict[str, Any]]]:
-
+    ) -> Tuple[
+        Dict[str, Optional[float]],
+        Dict[str, Dict[str, Any]],
+    ]:
         latest_metrics: Dict[str, Optional[float]] = {
             feature: None
             for feature in FIELD_CONTRACTS
@@ -1047,12 +832,14 @@ class IPOAnalyzer:
             if matching:
                 timestamp, normalized, source_field, raw_value = matching[-1]
 
-                multiplier = 1.0
-
-                for alias, mult in aliases:
-                    if alias == source_field:
-                        multiplier = mult
-                        break
+                multiplier = next(
+                    (
+                        mult
+                        for alias, mult in aliases
+                        if alias == source_field
+                    ),
+                    1.0,
+                )
 
                 latest_metrics[feature] = normalized
 
@@ -1070,19 +857,19 @@ class IPOAnalyzer:
 
                 continue
 
-            # The latest snapshot may not contain a particular feature.
-            # Search backwards for the latest VALID value only.
             fallback = self._latest_valid_history_point(history)
 
             if fallback is not None:
                 timestamp, normalized, source_field, raw_value = fallback
 
-                multiplier = 1.0
-
-                for alias, mult in aliases:
-                    if alias == source_field:
-                        multiplier = mult
-                        break
+                multiplier = next(
+                    (
+                        mult
+                        for alias, mult in aliases
+                        if alias == source_field
+                    ),
+                    1.0,
+                )
 
                 latest_metrics[feature] = normalized
 
@@ -1119,28 +906,17 @@ class IPOAnalyzer:
     def _latest_valid_history_point(
         history: List[Tuple[float, float, str, Any]],
     ) -> Optional[Tuple[float, float, str, Any]]:
-        if not history:
-            return None
-
         for point in reversed(history):
-            if point[1] is None:
-                continue
-
-            if math.isfinite(point[1]):
+            if point[1] is not None and math.isfinite(point[1]):
                 return point
 
         return None
-
-    # ========================================================================
-    # TRACE / COVERAGE
-    # ========================================================================
 
     def _build_feature_trace_summary(
         self,
         histories: Dict[str, List[Tuple[float, float, str, Any]]],
         feature_trace: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-
         total = len(FIELD_CONTRACTS)
 
         used_names = sorted(
@@ -1164,7 +940,7 @@ class IPOAnalyzer:
         used = len(used_names)
 
         coverage = (
-            (used / float(total)) * 100.0
+            used / float(total) * 100.0
             if total
             else 0.0
         )
@@ -1187,7 +963,6 @@ class IPOAnalyzer:
         histories: Dict[str, List[Tuple[float, float, str, Any]]],
         feature_trace: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-
         domains = {
             "risk": [
                 "ipo_risk",
@@ -1245,25 +1020,21 @@ class IPOAnalyzer:
         result: Dict[str, Any] = {}
 
         for domain, features in domains.items():
-            total = len(features)
-
             used_names = [
                 feature
                 for feature in features
-                if feature_trace.get(feature, {}).get("status")
-                == "used"
+                if feature_trace.get(feature, {}).get("status") == "used"
             ]
 
+            total = len(features)
             used = len(used_names)
 
-            coverage = (
-                (used / float(total)) * 100.0
-                if total
-                else 0.0
-            )
-
             result[domain] = {
-                "coverage_pct": _safe_round(coverage),
+                "coverage_pct": _safe_round(
+                    used / float(total) * 100.0
+                    if total
+                    else 0.0
+                ),
                 "used": used,
                 "total": total,
                 "used_features": sorted(used_names),
@@ -1271,32 +1042,23 @@ class IPOAnalyzer:
 
         return result
 
-    # ========================================================================
-    # DOMAIN CALCULATORS
-    # ========================================================================
-
     def _calculate_risk(
         self,
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         values: List[float] = []
 
         ipo_risk = m.get("ipo_risk")
 
         if ipo_risk is not None:
             score = _clip(ipo_risk, 0.0, 100.0)
-
-            # Higher explicit risk score = higher risk.
             values.append(score)
-
-            direction = -1.0 if score > 50.0 else 1.0
 
             nodes.append(
                 EvidenceNode(
                     "risk",
-                    direction,
+                    -1.0 if score > 50.0 else 1.0,
                     abs(score - 50.0) / 50.0,
                     f"IPO risk score is {score:.1f}.",
                 )
@@ -1309,34 +1071,37 @@ class IPOAnalyzer:
                 debt,
                 neutral=1.0,
                 scale=0.8,
-                invert=False,
             )
 
             values.append(score)
 
-            direction = -1.0 if score > 50.0 else 1.0
-
             nodes.append(
                 EvidenceNode(
                     "risk",
-                    direction,
+                    -1.0 if score > 50.0 else 1.0,
                     abs(score - 50.0) / 50.0,
-                    f"Debt-to-equity context indicates "
-                    f"{'elevated' if score > 50.0 else 'moderate/lower'} leverage risk.",
+                    (
+                        "Debt-to-equity context indicates "
+                        f"{'elevated' if score > 50.0 else 'moderate/lower'} "
+                        "leverage risk."
+                    ),
                 )
             )
 
         if not values:
             return None
 
-        return _clip(sum(values) / len(values), 0.0, 100.0)
+        return _clip(
+            sum(values) / len(values),
+            0.0,
+            100.0,
+        )
 
     def _calculate_valuation(
         self,
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         explicit = m.get("valuation")
 
         if explicit is not None:
@@ -1353,14 +1118,6 @@ class IPOAnalyzer:
 
             return score
 
-        issue = m.get("issue_price")
-        market = m.get("market_cap")
-
-        if issue is None or market is None or issue <= 0:
-            return None
-
-        # Without earnings/book-value/revenue normalization, market cap and
-        # issue price alone cannot establish valuation. Do not fabricate.
         return None
 
     def _calculate_ipo_quality(
@@ -1368,7 +1125,6 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         components: List[float] = []
 
         explicit = m.get("ipo_quality")
@@ -1384,24 +1140,24 @@ class IPOAnalyzer:
         revenue_growth = m.get("revenue_growth")
 
         if revenue_growth is not None:
-            score = _continuous_score(
-                revenue_growth,
-                neutral=8.0,
-                scale=12.0,
+            components.append(
+                _continuous_score(
+                    revenue_growth,
+                    neutral=8.0,
+                    scale=12.0,
+                )
             )
-
-            components.append(score)
 
         earnings_growth = m.get("earnings_growth")
 
         if earnings_growth is not None:
-            score = _continuous_score(
-                earnings_growth,
-                neutral=10.0,
-                scale=15.0,
+            components.append(
+                _continuous_score(
+                    earnings_growth,
+                    neutral=10.0,
+                    scale=15.0,
+                )
             )
-
-            components.append(score)
 
         roe = m.get("roe")
 
@@ -1463,7 +1219,6 @@ class IPOAnalyzer:
         histories: Dict[str, List[Tuple[float, float, str, Any]]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         explicit = m.get("listing")
 
         if explicit is not None:
@@ -1494,15 +1249,15 @@ class IPOAnalyzer:
             scale=10.0,
         )
 
-        direction = 1.0 if listing_return > 0 else -1.0
-
         nodes.append(
             EvidenceNode(
                 "listing",
-                direction,
+                1.0 if listing_return > 0 else -1.0,
                 min(abs(listing_return) / 20.0, 1.0),
-                f"Listing price is {listing_return:.1f}% "
-                f"relative to the issue price.",
+                (
+                    f"Listing price is {listing_return:.1f}% "
+                    "relative to the issue price."
+                ),
             )
         )
 
@@ -1513,17 +1268,11 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         value = m.get("subscription")
 
-        if value is None:
+        if value is None or value < 0:
             return None
 
-        if value < 0:
-            return None
-
-        # Subscription multiples are not converted into arbitrary scoring
-        # values. The curve is continuous and deterministic.
         score = _continuous_score(
             value,
             neutral=5.0,
@@ -1546,13 +1295,9 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         value = m.get("institutional")
 
-        if value is None:
-            return None
-
-        if value < 0:
+        if value is None or value < 0:
             return None
 
         score = _continuous_score(
@@ -1577,13 +1322,9 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         value = m.get("anchor")
 
-        if value is None:
-            return None
-
-        if value < 0:
+        if value is None or value < 0:
             return None
 
         score = _continuous_score(
@@ -1608,7 +1349,6 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         explicit = m.get("demand")
 
         if explicit is not None:
@@ -1625,10 +1365,10 @@ class IPOAnalyzer:
 
             return score
 
+        components: List[float] = []
+
         subscription = m.get("subscription")
         institutional = m.get("institutional")
-
-        components: List[float] = []
 
         if subscription is not None:
             components.append(
@@ -1670,7 +1410,6 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         explicit = m.get("liquidity")
 
         if explicit is not None:
@@ -1690,13 +1429,14 @@ class IPOAnalyzer:
         issue_size = m.get("issue_size")
         market_cap = m.get("market_cap")
 
-        if issue_size is None or market_cap is None:
+        if (
+            issue_size is None
+            or market_cap is None
+            or market_cap <= 0
+            or issue_size < 0
+        ):
             return None
 
-        if market_cap <= 0 or issue_size < 0:
-            return None
-
-        # This is a structural liquidity proxy only when both values exist.
         ratio = issue_size / market_cap
 
         score = _continuous_score(
@@ -1711,8 +1451,10 @@ class IPOAnalyzer:
                 "liquidity",
                 1.0 if score >= 50.0 else -1.0,
                 abs(score - 50.0) / 50.0,
-                f"Issue-size to market-capitalization ratio is "
-                f"{ratio:.2%}.",
+                (
+                    "Issue-size to market-capitalization ratio is "
+                    f"{ratio:.2%}."
+                ),
             )
         )
 
@@ -1723,7 +1465,6 @@ class IPOAnalyzer:
         m: Dict[str, Optional[float]],
         nodes: List[EvidenceNode],
     ) -> Optional[float]:
-
         components: List[float] = []
 
         explicit = m.get("business")
@@ -1818,10 +1559,6 @@ class IPOAnalyzer:
 
         return score
 
-    # ========================================================================
-    # OPPORTUNITY
-    # ========================================================================
-
     def _calculate_opportunity(
         self,
         *,
@@ -1836,7 +1573,6 @@ class IPOAnalyzer:
         liquidity_score: Optional[float],
         business_score: Optional[float],
     ) -> Optional[float]:
-
         components: List[Tuple[float, float]] = []
 
         if risk_score is not None:
@@ -1891,10 +1627,6 @@ class IPOAnalyzer:
             100.0,
         )
 
-    # ========================================================================
-    # CONTRADICTIONS
-    # ========================================================================
-
     def _detect_contradictions(
         self,
         *,
@@ -1907,7 +1639,6 @@ class IPOAnalyzer:
         listing_score: Optional[float],
         nodes: List[EvidenceNode],
     ) -> None:
-
         if (
             valuation_score is not None
             and demand_score is not None
@@ -1972,15 +1703,10 @@ class IPOAnalyzer:
                 )
             )
 
-    # ========================================================================
-    # EVIDENCE
-    # ========================================================================
-
     def _format_evidence(
         self,
         nodes: List[EvidenceNode],
     ) -> List[Dict[str, Any]]:
-
         output: List[Dict[str, Any]] = []
         seen: set[str] = set()
 
@@ -1997,14 +1723,9 @@ class IPOAnalyzer:
             )
 
             reliability = _clip(
-                0.70 + (magnitude * 0.30),
+                0.70 + magnitude * 0.30,
                 0.0,
                 1.0,
-            )
-
-            likelihood_ratio = _lr(
-                magnitude,
-                node.direction,
             )
 
             output.append(
@@ -2017,7 +1738,10 @@ class IPOAnalyzer:
                         6,
                     ),
                     "likelihood_ratio": _safe_round(
-                        likelihood_ratio,
+                        _lr(
+                            magnitude,
+                            node.direction,
+                        ),
                         6,
                     ),
                 }
@@ -2032,10 +1756,6 @@ class IPOAnalyzer:
 
         return output
 
-    # ========================================================================
-    # CONFIDENCE
-    # ========================================================================
-
     def _calculate_confidence(
         self,
         *,
@@ -2044,7 +1764,6 @@ class IPOAnalyzer:
         evidence: List[Dict[str, Any]],
         snapshots: List[Dict[str, Any]],
     ) -> float:
-
         feature_coverage = float(
             feature_trace_summary.get(
                 "coverage_pct",
@@ -2072,7 +1791,7 @@ class IPOAnalyzer:
         evidence_component = min(
             len(evidence),
             10,
-        ) * 1.0
+        )
 
         confidence = (
             feature_coverage * 0.45
@@ -2095,54 +1814,36 @@ class IPOAnalyzer:
             100.0,
         )
 
-    # ========================================================================
-    # FALLBACK
-    # ========================================================================
-
     def _empty(self) -> Dict[str, Any]:
         total_features = len(FIELD_CONTRACTS)
-
         missing = sorted(FIELD_CONTRACTS.keys())
 
         return {
             "ipo_analyzer": {
                 "confidence": 0.0,
-
                 "risk": None,
                 "risk_status": "unknown",
-
                 "valuation": None,
                 "valuation_status": "unknown",
-
                 "ipo_quality": None,
                 "ipo_quality_status": "unknown",
-
                 "listing": None,
                 "listing_status": "unknown",
-
                 "subscription": None,
                 "subscription_status": "unknown",
-
                 "institutional": None,
                 "institutional_status": "unknown",
-
                 "anchor": None,
                 "anchor_status": "unknown",
-
                 "demand": None,
                 "demand_status": "unknown",
-
                 "liquidity": None,
                 "liquidity_status": "unknown",
-
                 "business": None,
                 "business_status": "unknown",
-
                 "opportunity": None,
                 "opportunity_status": "unknown",
-
                 "feature_coverage_pct": 0.0,
-
                 "feature_trace_summary": {
                     "total_features": total_features,
                     "used_features": 0,
@@ -2155,7 +1856,6 @@ class IPOAnalyzer:
                     "missing_feature_names": missing,
                     "invalid_feature_names": [],
                 },
-
                 "feature_trace": {
                     feature: {
                         "status": "missing",
@@ -2173,26 +1873,17 @@ class IPOAnalyzer:
                     }
                     for feature in FIELD_CONTRACTS
                 },
-
                 "domain_coverage": {},
-
                 "evidence": [],
             }
         }
 
-
-# ============================================================================
-# MODULE-LEVEL API
-# ============================================================================
 
 def analyze(
     data: Any,
     *args: Any,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """
-    Public module-level analyzer entry point.
-    """
     return IPOAnalyzer().analyze(
         data,
         *args,
