@@ -5,34 +5,18 @@ from typing import Dict, Any
 class VolatilityAnalyzer:
     """
     Green Bull Rider V6 - L1 Volatility Analyzer (Institutional Grade)
-    
-    Operates strictly on the pipeline-provided exact feature whitelist.
-    Evaluates kinetic energy storage (Squeeze), velocity of dispersion (Expansion),
-    and structural noise using continuous statistical Z-Scores and derivatives.
-    Zero arbitrary thresholds. Zero hallucinated features.
     """
 
     def __init__(self):
-        # Statistical Standard Deviation Boundaries for continuous mapping
         self.Z_MODERATE = 0.5
         self.Z_SIGNIFICANT = 1.0
         self.Z_EXTREME = 2.0
         self.EPSILON = 1e-8
 
     def analyze(self, feature_blocks: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
-        """
-        Executes dynamic volatility tracking. Expects the following categorized blocks 
-        from the pipeline using EXACTLY the user's whitelist:
-        - 'atr_block': tr, atr_14, natr_14, adaptive_atr, atr_percentile
-        - 'band_block': bb_middle, bb_upper, bb_lower, bb_width, bb_percent_b, bb_squeeze, bb_sqz_mom
-        - 'dispersion_block': std_20, var_20, standard_error, hv_21, parkinson_vol, garman_klass, rogers_satchell, yang_zhang
-        - 'osc_block': chaikin_vol, ulcer_index, volatility_ratio, expansion_index, volatility_osc
-        - 'noise_block': choppiness, vhf
-        """
         if not feature_blocks:
             return self._fallback_contract()
 
-        # 1. MATHEMATICAL MICRO-TRACKERS (Vectorized over historical window)
         compression = self._track_energy_compression(
             feature_blocks.get("band_block"), 
             feature_blocks.get("atr_block")
@@ -48,12 +32,10 @@ class VolatilityAnalyzer:
         )
         noise = self._track_structural_noise(feature_blocks.get("noise_block"))
 
-        # 2. SYNTHESIS
         vol_state = self._synthesize_volatility_regime(compression, expansion, excursion, noise)
         energy_level = self._calculate_kinetic_energy_level(compression, expansion)
         confidence = self._compute_statistical_confidence(noise, compression, expansion)
 
-        # 3. EXACT LOCKED JSON CONTRACT
         return {
             "analyzer_name": "volatility_analyzer",
             "volatility_state": vol_state,
@@ -68,8 +50,8 @@ class VolatilityAnalyzer:
                 "dispersion_coherence_z": expansion["dispersion_z"]
             },
             "excursion_metrics": {
-                "percent_b_z": excursion_metrics["percent_b_z"],
-                "mean_reversion_risk": excursion_metrics["risk_level"]
+                "percent_b_z": excursion["percent_b_z"],
+                "mean_reversion_risk": excursion["risk_level"]
             },
             "structural_noise": {
                 "chop_z_score": noise["chop_z"],
@@ -79,78 +61,70 @@ class VolatilityAnalyzer:
             "confidence": confidence
         }
 
-    # ==========================================
-    # BEHAVIORAL TRACKING (Mathematical Core)
-    # ==========================================
-
     def _track_energy_compression(self, band_df: pd.DataFrame, atr_df: pd.DataFrame) -> dict:
-        """Measures the mathematical storage of kinetic energy (Squeeze/Compression)."""
         res = {"width_z": 0.0, "atr_percentile_val": 0.0, "is_active_squeeze": False}
         
         if band_df is not None and not band_df.empty:
             if 'bb_width' in band_df.columns:
-                bb_width = band_df['bb_width'].ffill().bfill().to_numpy()
+                bb_width = pd.to_numeric(band_df['bb_width'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
                 res["width_z"] = self._calculate_z_score(bb_width)
                 
             if 'bb_squeeze' in band_df.columns:
-                # Direct institutional squeeze metric provided in whitelist
-                sqz = band_df['bb_squeeze'].ffill().bfill().to_numpy()
-                # Assuming standard numeric output where > 0 indicates active squeeze logic
+                sqz = pd.to_numeric(band_df['bb_squeeze'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
                 if len(sqz) > 0 and sqz[-1] > 0:
                     res["is_active_squeeze"] = True
 
         if atr_df is not None and 'atr_percentile' in atr_df.columns:
-            res["atr_percentile_val"] = atr_df['atr_percentile'].ffill().bfill().iloc[-1]
+            res["atr_percentile_val"] = float(pd.to_numeric(atr_df['atr_percentile'], errors='coerce').ffill().bfill().iloc[-1])
             
-        # Mathematical override: If Z-score is extremely negative, it's a structural squeeze
         if res["width_z"] < -self.Z_SIGNIFICANT:
             res["is_active_squeeze"] = True
 
         return res
 
     def _track_kinetic_expansion(self, band_df: pd.DataFrame, osc_df: pd.DataFrame, disp_df: pd.DataFrame) -> dict:
-        """Measures the 1st derivative (velocity) of volatility release."""
         res = {"expansion_vel_z": 0.0, "dispersion_z": 0.0}
-        
-        # 1. Band & Oscillator Expansion Velocity
         expansion_signals = []
+        
         if band_df is not None and 'bb_width' in band_df.columns:
-            bb_w_vel = np.gradient(band_df['bb_width'].ffill().bfill().to_numpy())
-            expansion_signals.append(self._calculate_z_score(bb_w_vel))
+            bb_w_arr = pd.to_numeric(band_df['bb_width'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
+            if not np.all(np.isnan(bb_w_arr)):
+                bb_w_vel = np.gradient(bb_w_arr)
+                expansion_signals.append(self._calculate_z_score(bb_w_vel))
             
         if osc_df is not None:
             for col in ['expansion_index', 'volatility_osc', 'chaikin_vol']:
                 if col in osc_df.columns:
-                    vel = np.gradient(osc_df[col].ffill().bfill().to_numpy())
-                    expansion_signals.append(self._calculate_z_score(vel))
+                    col_arr = pd.to_numeric(osc_df[col], errors='coerce').ffill().bfill().to_numpy(dtype=float)
+                    if not np.all(np.isnan(col_arr)):
+                        vel = np.gradient(col_arr)
+                        expansion_signals.append(self._calculate_z_score(vel))
                     
         if expansion_signals:
             res["expansion_vel_z"] = np.nanmean(expansion_signals)
 
-        # 2. Advanced Dispersion Coherence (Parkinson, Garman-Klass, Yang-Zhang)
         if disp_df is not None:
             adv_cols = [c for c in ['parkinson_vol', 'garman_klass', 'rogers_satchell', 'yang_zhang', 'hv_21'] if c in disp_df.columns]
             if adv_cols:
-                disp_matrix = disp_df[adv_cols].ffill().bfill().to_numpy()
-                mean_dispersion = np.nanmean(disp_matrix, axis=1)
-                res["dispersion_z"] = self._calculate_z_score(mean_dispersion)
+                disp_matrix = disp_df[adv_cols].apply(pd.to_numeric, errors='coerce').ffill().bfill().to_numpy(dtype=float)
+                if not np.all(np.isnan(disp_matrix)):
+                    mean_dispersion = np.nanmean(disp_matrix, axis=1)
+                    res["dispersion_z"] = self._calculate_z_score(mean_dispersion)
 
         return res
 
     def _track_band_excursion(self, band_df: pd.DataFrame, disp_df: pd.DataFrame) -> dict:
-        """Evaluates exhaustion by tracking percent_b and standard error deviations."""
         res = {"percent_b_z": 0.0, "risk_level": "unknown"}
         
         if band_df is not None and 'bb_percent_b' in band_df.columns:
-            pb = band_df['bb_percent_b'].ffill().bfill().to_numpy()
+            pb = pd.to_numeric(band_df['bb_percent_b'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
             res["percent_b_z"] = self._calculate_z_score(pb)
             
         std_err_z = 0.0
         if disp_df is not None and 'standard_error' in disp_df.columns:
-            se = disp_df['standard_error'].ffill().bfill().to_numpy()
+            se = pd.to_numeric(disp_df['standard_error'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
             std_err_z = self._calculate_z_score(se)
             
-        # Risk logic based on mathematical distance from mean (excursion)
         excursion_magnitude = abs(res["percent_b_z"])
         
         if excursion_magnitude > self.Z_EXTREME and std_err_z > self.Z_SIGNIFICANT:
@@ -163,19 +137,17 @@ class VolatilityAnalyzer:
         return res
 
     def _track_structural_noise(self, noise_df: pd.DataFrame) -> dict:
-        """Differentiates directional structural trends from erratic chop (VHF & Choppiness)."""
         res = {"chop_z": 0.0, "vhf_z": 0.0, "status": "unknown"}
         
         if noise_df is not None:
             if 'choppiness' in noise_df.columns:
-                chop = noise_df['choppiness'].ffill().bfill().to_numpy()
+                chop = pd.to_numeric(noise_df['choppiness'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
                 res["chop_z"] = self._calculate_z_score(chop)
                 
             if 'vhf' in noise_df.columns:
-                vhf = noise_df['vhf'].ffill().bfill().to_numpy()
-                res["vhf_z"] = self._calculate_z_score(vhf) # Higher VHF = stronger trend, lower noise
+                vhf = pd.to_numeric(noise_df['vhf'], errors='coerce').ffill().bfill().to_numpy(dtype=float)
+                res["vhf_z"] = self._calculate_z_score(vhf)
                 
-        # High choppiness and low VHF mathematically equates to market noise
         if res["chop_z"] > self.Z_SIGNIFICANT and res["vhf_z"] < -self.Z_MODERATE:
             res["status"] = "elevated_noise"
         elif res["chop_z"] < -self.Z_SIGNIFICANT and res["vhf_z"] > self.Z_MODERATE:
@@ -185,33 +157,20 @@ class VolatilityAnalyzer:
             
         return res
 
-    # ==========================================
-    # SYNTHESIS & LOGIC MAPPING
-    # ==========================================
-
     def _synthesize_volatility_regime(self, comp: dict, exp: dict, exc: dict, noise: dict) -> str:
-        """Synthesizes overarching state based on strict Z-score evidence."""
         if comp["is_active_squeeze"] or comp["width_z"] < -self.Z_SIGNIFICANT:
             return "compression"
-            
         if exp["expansion_vel_z"] > self.Z_SIGNIFICANT and exp["dispersion_z"] > self.Z_MODERATE:
             if exc["risk_level"] == "high":
                 return "exhaustion"
             return "expansion"
-            
         if noise["status"] == "elevated_noise":
             return "choppy"
-            
         return "normal"
 
     def _calculate_kinetic_energy_level(self, comp: dict, exp: dict) -> str:
-        """
-        Energy is absolute: deeply stored (high negative Z compression) 
-        OR explosively released (high positive Z expansion).
-        """
         comp_mag = abs(min(0.0, comp["width_z"]))
         exp_mag = max(0.0, exp["expansion_vel_z"])
-        
         dominant = max(comp_mag, exp_mag)
         
         if dominant > self.Z_EXTREME: return "extreme"
@@ -220,13 +179,9 @@ class VolatilityAnalyzer:
         return "low"
 
     def _compute_statistical_confidence(self, noise: dict, comp: dict, exp: dict) -> str:
-        """Confidence is high when noise is low, or when distinct compression/expansion is mathematically evident."""
         conf_score = 3.0
-        
         if noise["status"] == "directional_clarity": conf_score += 1.0
         if noise["status"] == "elevated_noise": conf_score -= 1.0
-        
-        # Mathematical extremity provides cleaner signal clarity
         if comp["is_active_squeeze"] or abs(exp["expansion_vel_z"]) > self.Z_EXTREME:
             conf_score += 1.0
             
@@ -237,9 +192,8 @@ class VolatilityAnalyzer:
         return "very_low"
 
     def _calculate_z_score(self, series: np.ndarray) -> float:
-        """Calculates standard deviation mapping continuously over the provided window."""
-        if len(series) == 0:
-            return 0.0
+        series = series[~np.isnan(series)]
+        if len(series) == 0: return 0.0
         current_val = series[-1]
         hist_mean = np.nanmean(series)
         hist_std = np.nanstd(series) + self.EPSILON
